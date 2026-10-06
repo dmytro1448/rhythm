@@ -24,10 +24,17 @@ def load(path):
     start, end = plan["start"], plan["end"]
     events = []
     for r in plan.get("routines", []):
-        days = r.get("days", PY_DAYS)
-        first = next(start + timedelta(days=i) for i in range(7)
-                     if PY_DAYS[(start + timedelta(days=i)).weekday()] in days)
-        rule = f"FREQ=WEEKLY;BYDAY={','.join(DAYS[d] for d in days)};UNTIL={gcal.rrule_until(end)}"
+        first_day = r.get("from", start)
+        # UNTIL: для подій на весь день — дата, для подій з часом — UTC-час
+        until = end.strftime("%Y%m%d") if not r.get("time") else gcal.rrule_until(end)
+        if r.get("every"):
+            first = first_day
+            rule = f"FREQ=DAILY;INTERVAL={r['every']};UNTIL={until}"
+        else:
+            days = r.get("days", PY_DAYS)
+            first = next(first_day + timedelta(days=i) for i in range(7)
+                         if PY_DAYS[(first_day + timedelta(days=i)).weekday()] in days)
+            rule = f"FREQ=WEEKLY;BYDAY={','.join(DAYS[d] for d in days)};UNTIL={until}"
         events.append(dict(title=r["title"], day=first, start_time=r.get("time"),
                            duration_min=r.get("duration"), description=r.get("note", ""),
                            recurrence=[rule], remind_before_min=r.get("remind")))
@@ -52,7 +59,7 @@ def main():
         return
 
     for e in events:
-        rec = " (щотижня)" if e.get("recurrence") else ""
+        rec = f"  [{e['recurrence'][0].split(';UNTIL')[0]}]" if e.get("recurrence") else ""
         print(f"{e['day']} {e['start_time'] or 'весь день':>9}  {e['title']}{rec}")
     if "--apply" not in sys.argv:
         print(f"\n{len(events)} подій. Запусти з --apply, щоб створити.")

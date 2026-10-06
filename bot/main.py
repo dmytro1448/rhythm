@@ -37,6 +37,15 @@ def handle_message(msg, state):
         web_app_data(msg["web_app_data"]["data"], state, now)
         return
     text = (msg.get("text") or msg.get("caption") or "").strip()
+    if msg.get("photo"):
+        tg.typing()
+        info = agent.read_image(tg.download(msg["photo"][-1]["file_id"]))
+        if info.get("screen") and info.get("minutes"):
+            screen_shot(info, state, now, msg)
+            if not text:
+                return
+        else:
+            text = f"[фото: {info.get('summary', 'без опису')}] {text}".strip()
     audio = msg.get("voice") or msg.get("audio") or msg.get("video_note")
     if audio:
         tg.typing()
@@ -59,6 +68,26 @@ def handle_message(msg, state):
     if used & {"mark_done", "add_log", "update_goal"}:
         game.on_report(state, now.date())
     tg.send(reply)
+
+
+def screen_shot(info, state, now, msg):
+    sent = datetime.fromtimestamp(msg["date"], config.TZ).date()
+    day = {"today": sent, "yesterday": sent - timedelta(days=1)}.get(info.get("day"))
+    if day is None:
+        try:
+            day = datetime.strptime(info.get("day") or "", "%Y-%m-%d").date()
+        except ValueError:
+            day = sent
+    mins = int(info["minutes"])
+    prev = state["screen"].get((day - timedelta(days=1)).isoformat())
+    game.on_screen(state, day, mins, info.get("apps"))
+    lines = [f"📱 <b>{fmt.hm(mins)}</b> · {fmt.day_title(day).lower()}"]
+    if prev:
+        diff = mins - prev["min"]
+        lines.append(f"{'↓' if diff < 0 else '↑'} {fmt.hm(abs(diff))} проти попереднього дня")
+    for a in (info.get("apps") or [])[:3]:
+        lines.append(f"· {escape(a['name'])} — {fmt.hm(int(a['minutes']))}")
+    tg.send("\n".join(lines), html=True)
 
 
 def web_app_data(raw, state, now):

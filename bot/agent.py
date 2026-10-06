@@ -1,5 +1,6 @@
 """AI-агент: розуміє звіти (текст/голос), позначає виконане, керує календарем."""
 
+import base64
 import json
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -12,6 +13,23 @@ from . import config, fmt, game, gcal
 @lru_cache
 def _client():
     return OpenAI(api_key=config.OPENAI_API_KEY)
+
+
+SCREEN_PROMPT = """Це скріншот? Якщо на ньому екранний час телефону (Screen Time / Digital Wellbeing),
+поверни JSON: {"screen": true, "minutes": загальний час за день у хвилинах, "day": "today" | "yesterday" | "YYYY-MM-DD" | null,
+"apps": [{"name": "...", "minutes": N}] до 5 найбільших}. Якщо це не екранний час — {"screen": false, "summary": "коротко, що на фото"}."""
+
+
+def read_image(image: bytes) -> dict:
+    url = "data:image/jpeg;base64," + base64.b64encode(image).decode()
+    res = _client().chat.completions.create(
+        model=config.OPENAI_MODEL, response_format={"type": "json_object"},
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": SCREEN_PROMPT},
+            {"type": "image_url", "image_url": {"url": url, "detail": "low"}},
+        ]}],
+    )
+    return json.loads(res.choices[0].message.content)
 
 
 def transcribe(audio: bytes, filename="voice.ogg") -> str:
@@ -49,8 +67,10 @@ TOOLS = [
         "start_time": _TIME, "end_time": _TIME, "description": {"type": "string"},
         "remind_before_min": {"type": "integer"},
     }, ["event_id"]),
-    _fn("delete_event", "Видалити справу. Лише на явне прохання користувача.",
-        {"event_id": {"type": "string"}}, ["event_id"]),
+    _fn("delete_event", "Видалити справу. Лише на явне прохання користувача. series=true — прибрати всю регулярну серію (напр. «знайшов роботу — прибери пошук роботи»).",
+        {"event_id": {"type": "string"}, "series": {"type": "boolean"}}, ["event_id"]),
+    _fn("log_screen_time", "Записати екранний час телефону за день.",
+        {"minutes": {"type": "integer"}, "date": _DATE}, ["minutes", "date"]),
     _fn("mark_done", "Позначити справи виконаними.",
         {"event_ids": {"type": "array", "items": {"type": "string"}}}, ["event_ids"]),
     _fn("unmark_done", "Зняти позначку виконання.",
@@ -80,6 +100,9 @@ SYSTEM = """Ти — особистий асистент ритму життя �
 
 Джерело правди про справи — Google Calendar. Порядок справ бери саме звідти, не вигадуй справ, яких там немає.
 
+Справи — це переважно «пункти дня» без часу (подія на весь день). Звіт за вчора теж можна приймати: вчорашні пункти є нижче.
+Екранний час: користувач надсилає скріни або пише цифру — фіксуй через log_screen_time. Мета — менше телефону.
+
 Як працюєш:
 1. Звіт. Користувач розповідає, що зробив — зістав зі справами календаря (по суті, не дослівно) і виклич mark_done. Важливе поза календарем (самопочуття, енергія, інсайти, перешкоди, незаплановані дії) збережи через add_log.
 2. Невиконане — коротко запропонуй, куди перенести (найближчий вільний слот). Переносиш лише після згоди або якщо користувач сам попросив.
@@ -87,6 +110,9 @@ SYSTEM = """Ти — особистий асистент ритму життя �
 4. Планування. Додаєш/переносиш/змінюєш справи в календарі. Для звичок — recurrence. Якщо час не вказано — обери вільний слот і назви його. Перед додаванням на інший день спершу подивись get_events, щоб не було накладок.
 5. Видаляєш лише на явне прохання.
 6. Після дій — коротке підтвердження, що саме зроблено.
+
+Вчора:
+{yesterday_events}
 
 Сьогодні ({today}):
 {today_events}
@@ -103,7 +129,7 @@ SYSTEM = """Ти — особистий асистент ритму життя �
 
 def _system(state, now):
     today, tomorrow = now.date(), now.date() + timedelta(days=1)
-    events = gcal.list_events(today, tomorrow)
+    events = gcal.list_events(today - timedelta(days=1), tomorrow)
     done = state["done"]
 
     def block(d):
@@ -118,6 +144,7 @@ def _system(state, now):
         now=f"{fmt.WEEKDAYS[now.weekday()]}, {now:%Y-%m-%d %H:%M} ({config.TZ.key})",
         today=today.isoformat(), today_events=block(today),
         tomorrow_events=block(tomorrow), log=log, goals=goals,
+        yesterday_events=block(today - timedelta(days=1)),
     )
 
 
@@ -156,7 +183,7 @@ def _exec(name, a, state, now):
                               a.get("end_time"), a.get("description"), a.get("remind_before_min"))
         return _ev(e, state["done"])
     if name == "delete_event":
-        gcal.delete_event(a["event_id"])
+        gcal.delete_event(a["event_id"], bool(a.get("series")))
         state["done"].pop(a["event_id"], None)
         return {"ok": True}
     if name in ("mark_done", "unmark_done"):
@@ -185,6 +212,9 @@ def _exec(name, a, state, now):
             if a.get(k):
                 g[k] = a[k]
         return {**g, "pct": game.goal_pct(g)}
+    if name == "log_screen_time":
+        game.on_screen(state, _d(a["date"]), a["minutes"])
+        return {"ok": True}
     if name == "add_log":
         entry = {"date": today.isoformat(), "time": f"{now:%H:%M}", "text": a["text"]}
         if a.get("energy"):

@@ -69,4 +69,5 @@ def _prune(s):
     s["days"] = {k: v for k, v in s["days"].items() if k >= long}
     s["history"] = s["history"][-20:]
     s["log"] = s["log"][-300:]
+    s["screen"] = {k: v for k, v in s["screen"].items() if k >= long}
     s["report_days"] = {k: v for k, v in s["report_days"].items() if k >= long}

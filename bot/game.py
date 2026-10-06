@@ -25,6 +25,7 @@ ROSTER = [
     ("reports_7", "rare", "7 звітів", "reports", 7),
     ("streak_7", "rare", "Серія 7 днів", "streak", 7),
     ("tasks_50", "rare", "50 виконаних справ", "tasks", 50),
+    ("screen_7", "rare", "7 днів фіксуй екранний час", "screen", 7),
     ("goal_half", "rare", "Будь-яка ціль на 50%", "goal_max", 50),
     ("voice_10", "rare", "10 голосових звітів", "voice", 10),
     ("level_5", "epic", "Досягни 5 рівня", "level", 5),
@@ -45,6 +46,7 @@ def init(state):
     state.setdefault("unlocked", {})
     state.setdefault("goals", [])
     state.setdefault("best_streak", 0)
+    state.setdefault("screen", {})  # дата -> {min, apps}
 
 
 def add_xp(state, n):
@@ -79,6 +81,13 @@ def on_report(state, today: date):
         state["report_days"][key] = True
         state["stats"]["reports"] += 1
         add_xp(state, XP_REPORT)
+
+
+def on_screen(state, day: date, minutes: int, apps=None):
+    first = day.isoformat() not in state["screen"]
+    state["screen"][day.isoformat()] = {"min": int(minutes), "apps": (apps or [])[:5]}
+    if first:
+        add_xp(state, 5)
 
 
 def on_voice(state):
@@ -164,6 +173,7 @@ def metrics(state, today):
         "goal_max": max(goals, default=0),
         "goals_all": int(bool(goals) and min(goals) >= 100),
         "closed_30": sum(closed(r) for r in month),
+        "screen": len(state.get("screen", {})),
     }
 
 

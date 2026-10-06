@@ -50,9 +50,11 @@ def done_buttons(state, events, day):
 
 def morning(state, today, events):
     text = f"<b>{fmt.day_title(today)}</b>\n\n{fmt.day_block(events)}"
-    timed = [e for e in events if not e["all_day"]]
-    if timed:
-        text += f"\n\n{fmt.plural(len(events), 'справа', 'справи', 'справ')} · перша о {timed[0]['start']:%H:%M}"
+    if events:
+        text += f"\n\n{fmt.plural(len(events), 'пункт', 'пункти', 'пунктів')} · відмічай кнопками або звітом"
+    shot = state.get("screen", {}).get((today - timedelta(days=1)).isoformat())
+    if shot:
+        text += f"\nЕкранний час учора: {fmt.hm(shot['min'])}"
     tg.send(text, buttons=done_buttons(state, events, today), html=True)
 
 

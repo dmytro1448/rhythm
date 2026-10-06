@@ -37,16 +37,17 @@ def snapshot(state, events, now: datetime):
             "energy": round(sum(energy) / len(energy), 1) if energy else None,
             "notes": [x["text"] for x in notes][-3:],
             "report": d.isoformat() in state["report_days"],
+            "screen": state["screen"].get(d.isoformat(), {}).get("min"),
         })
 
     return {
         "v": 1,
         "today": {
             "date": today.isoformat(), "title": fmt.day_title(today),
-            "tasks": [{"id": e["id"], "title": e["title"], "time": fmt.when(e),
+            "tasks": [{"id": e["id"], "title": e["title"], "time": "" if e["all_day"] else fmt.when(e),
                        "done": e["id"] in state["done"]} for e in tasks],
         },
-        "tomorrow": [{"title": e["title"], "time": fmt.when(e)}
+        "tomorrow": [{"title": e["title"], "time": "" if e["all_day"] else fmt.when(e)}
                      for e in fmt.for_day(events, today + timedelta(days=1))],
         "player": {
             "xp": xp, "level": lvl, "floor": game.level_floor(lvl), "next": game.level_floor(lvl + 1),

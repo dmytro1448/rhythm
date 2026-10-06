@@ -144,7 +144,11 @@ def update_event(event_id, title=None, day=None, start_time=None, end_time=None,
     return _parse(ev)
 
 
-def delete_event(event_id):
+def delete_event(event_id, series=False):
+    """series=True — видалити всю повторювану серію, до якої належить подія."""
+    if series:
+        raw = _events().get(calendarId=config.CALENDAR_ID, eventId=event_id).execute()
+        event_id = raw.get("recurringEventId", event_id)
     _events().delete(calendarId=config.CALENDAR_ID, eventId=event_id).execute()
 
 

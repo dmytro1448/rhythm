@@ -17,7 +17,7 @@ def on_day(e, d: date):
 
 
 def for_day(events, d: date):
-    return [e for e in events if on_day(e, d)]
+    return sorted((e for e in events if on_day(e, d)), key=sort_key)
 
 
 def when(e):
@@ -30,10 +30,17 @@ def when(e):
 
 
 def line(e, done_ids=None):
-    mark = ""
+    mark = "· "
     if done_ids is not None:
-        mark = "✓ " if e["id"] in done_ids else "· "
+        mark = "✓ " if e["id"] in done_ids else "○ "
+    if e["all_day"]:
+        return f"{mark}{escape(e['title'])}"
     return f"{mark}<code>{when(e)}</code>  {escape(e['title'])}"
+
+
+def sort_key(e):
+    """Спершу справи з часом, потім пункти дня."""
+    return (e["all_day"], e["start"].isoformat() if not e["all_day"] else "", e["title"])
 
 
 def day_block(events, done_ids=None):
@@ -44,8 +51,12 @@ def day_block(events, done_ids=None):
 
 def plain(e, done_ids):
     done = " ✓" if e["id"] in done_ids else ""
-    d = e["start"] if e["all_day"] else e["start"].date()
-    return f"[{e['id']}] {d.isoformat()} {when(e)} {e['title']}{done}"
+    t = "пункт дня" if e["all_day"] else when(e)
+    return f"[{e['id']}] {t} — {e['title']}{done}"
+
+
+def hm(minutes):
+    return f"{minutes // 60} год {minutes % 60:02d} хв" if minutes >= 60 else f"{minutes} хв"
 
 
 def plural(n, one, few, many):
