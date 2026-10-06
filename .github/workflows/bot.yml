@@ -68,6 +68,11 @@ jobs:
           [ -n "$last" ] && age=$(( $(date +%s) - $(date -d "$last" +%s) ))
           if [ "$age" -gt 900 ]; then
             echo "cron мовчить ${age}s — плануємо наступний запуск"
-            sleep 200
-            gh workflow run bot -R "$GITHUB_REPOSITORY" --ref main
+            sleep 180
+            # API GitHub інколи відповідає 500 — повторюємо, щоб ланцюжок не обірвався
+            for i in 1 2 3 4 5 6 7 8; do
+              gh workflow run bot -R "$GITHUB_REPOSITORY" --ref main && exit 0
+              echo "спроба $i не вдалась, чекаю"; sleep $((i * 5))
+            done
+            exit 1
           fi
