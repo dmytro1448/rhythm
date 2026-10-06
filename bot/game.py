@@ -7,7 +7,7 @@ import math
 import random
 from datetime import date, datetime, timedelta
 
-from . import fmt
+from . import finance, fmt
 
 # ---- система балів
 DONE = {"habit": 10, "task": 15, "deadline": 40}  # виконано вчасно
@@ -190,6 +190,8 @@ def update_days(state, events, now: datetime):
         if rec.get("planned") and rec["done"] >= rec["planned"]:
             state["stats"]["perfect"] += 1
             points(state, d, PERFECT, "★ ідеальний день")
+        for pts, why in finance.close_day(state, d):
+            points(state, d, pts, why)
         s = streak(state, d)
         if s:
             points(state, d, min(STREAK_MAX, STREAK_DAY * s), f"🔥 серія {s} дн")

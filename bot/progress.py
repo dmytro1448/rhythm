@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from . import config, fmt, game
+from . import config, finance, fmt, game
 
 PATH = config.ROOT / "data" / "progress.enc"
 
@@ -63,6 +63,28 @@ def snapshot(state, events, now: datetime, late=()):
         "goals": [{**g, "pct": game.goal_pct(g)} for g in state["goals"]],
         "heat": heat,
         "roster": game.roster_view(state, today),
+        "money": _money(state, today),
+    }
+
+
+def _money(state, today):
+    s = finance.status(state, today)
+    if not s:
+        return None
+    days = []
+    for i in range(13, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        days.append({"d": d, "spent": round(sum(e["amount"] for e in state["expenses"] if e["d"] == d and e["cat"] != "fixed"), 2)})
+    return {
+        **{k: s[k] for k in ("currency", "total", "fixed", "buffer", "flexible", "per_day", "food_week", "spent",
+                             "spent_today", "allow_today", "left_today", "left_month", "days_left", "elapsed",
+                             "food_week_spent", "days")},
+        "cats": [{"key": k, "emoji": em, "name": name, "limit": s["limits"][k], "spent": s["by_cat"][k]}
+                 for k, (em, name, _) in finance.CAT.items()],
+        "fixed_items": state["budget"]["fixed"], "fixed_paid": s["fixed_paid"],
+        "recent": state["expenses"][-15:][::-1],
+        "days14": days,
+        "meal_plan": (state.get("meal_plan") or {}).get("text"),
     }
 
 

@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 from html import escape
 
-from . import agent, config, fmt, game, gcal, progress, scheduler, store
+from . import agent, config, finance, fmt, game, gcal, progress, scheduler, store
 from . import telegram as tg
 
 HELP = """<b>Ритм</b>
@@ -36,8 +36,12 @@ def handle_message(msg, state):
     if msg.get("photo"):
         tg.typing()
         info = agent.read_image(tg.download(msg["photo"][-1]["file_id"]))
-        if info.get("screen") and info.get("minutes"):
+        if info.get("type") == "screen" and info.get("minutes"):
             screen_shot(info, state, now, msg)
+            if not text:
+                return
+        elif info.get("type") == "receipt" and info.get("total"):
+            receipt(info, state, now)
             if not text:
                 return
         else:
@@ -64,6 +68,57 @@ def handle_message(msg, state):
     if used & {"mark_done", "add_log", "update_goal"}:
         game.on_report(state, now.date())
     tg.send(reply)
+    if "set_budget" in used and "make_meal_plan" not in used:
+        tg.typing()
+        finance.make_meal_plan(agent._client(), config.OPENAI_MODEL, state, now.date())
+        used = used | {"make_meal_plan"}
+    if "make_meal_plan" in used and state.get("meal_plan"):
+        tg.send(state["meal_plan"]["text"])
+    _money_alerts(state, now)
+
+
+def _money_alerts(state, now):
+    for text in finance.alerts(state, now.date()):
+        tg.send(text)
+
+
+def receipt(info, state, now):
+    """Чек → витрати по категоріях. Сума позицій підганяється під total."""
+    day = now.date()
+    try:
+        day = datetime.strptime(info.get("date") or "", "%Y-%m-%d").date()
+    except ValueError:
+        pass
+    total = round(float(info["total"]), 2)
+    by_cat, last_cat = {}, None
+    for it in info.get("items") or []:
+        try:
+            amount = float(it["amount"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if amount < 0 and last_cat:  # знижка — до попередньої позиції, а не окремою витратою
+            name, prev = by_cat[last_cat][-1]
+            by_cat[last_cat][-1] = (name, prev + amount)
+            continue
+        last_cat = it.get("category", "other")
+        by_cat.setdefault(last_cat, []).append((it.get("name", ""), amount))
+    items_sum = sum(a for v in by_cat.values() for _, a in v)
+    if not by_cat or abs(items_sum - total) > 0.05 * total:
+        by_cat = {"food": [("покупки", total)]} if not by_cat else by_cat
+        k = total / items_sum if items_sum else 1
+        by_cat = {c: [(n, a * k) for n, a in v] for c, v in by_cat.items()}
+    store_name = (info.get("store") or "чек")[:30]
+    parts = []
+    for cat, items in by_cat.items():
+        amount = round(sum(a for _, a in items), 2)
+        names = ", ".join(n for n, _ in items[:4])
+        finance.add_expense(state, amount, cat, f"{store_name}: {names}", day, source="receipt")
+        em, name, _ = finance.CAT.get(cat, ("📦", "Інше", 0))
+        parts.append(f"{em} {name} {finance.money(amount)}")
+    s = finance.status(state, now.date())
+    tail = f"\nМожна ще сьогодні: {finance.money(max(0, s['left_today']), s['currency'])}" if s else ""
+    tg.send(f"🧾 {escape(store_name)} · {finance.money(total)}\n" + " · ".join(parts) + tail)
+    _money_alerts(state, now)
 
 
 def screen_shot(info, state, now, msg):

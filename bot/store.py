@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from cryptography.fernet import Fernet
 
-from . import config, game
+from . import config, finance, game
 
 ENC_PATH = config.ROOT / "data" / "state.enc"
 PLAIN_PATH = config.ROOT / "data" / "state.json"
@@ -42,6 +42,7 @@ def load():
         state.update(json.loads(raw))
     _loaded = raw
     game.init(state)
+    finance.init(state)
     return state
 
 
@@ -72,5 +73,7 @@ def _prune(s):
     s["done_pts"] = {k: v for k, v in s["done_pts"].items() if k in s["done"]}
     s["charged"] = {k: v for k, v in s["charged"].items() if v >= short}
     s["ledger"] = [x for x in s["ledger"] if x["d"] >= long]
+    s["expenses"] = [e for e in s["expenses"] if e["d"] >= long]
+    s["alerts"] = {k: v for k, v in s["alerts"].items() if v >= short}
     s["screen"] = {k: v for k, v in s["screen"].items() if k >= long}
     s["report_days"] = {k: v for k, v in s["report_days"].items() if k >= long}

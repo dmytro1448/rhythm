@@ -69,8 +69,8 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 
 /* ---------- вкладки */
 nav { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 14px 0 10px; }
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface); border-radius: 16px; padding: 4px; position: relative; }
-.tabs .pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 4); border-radius: 12px;
+.tabs { display: grid; grid-template-columns: repeat(5, 1fr); background: var(--surface); border-radius: 16px; padding: 4px; position: relative; }
+.tabs .pill { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc((100% - 8px) / 5); border-radius: 12px;
   background: var(--text); transition: transform .35s cubic-bezier(.3,1.4,.5,1); }
 .tabs button { position: relative; z-index: 1; padding: 9px 0; font-size: 12.5px; font-weight: 700; color: var(--muted); transition: color .25s; }
 .tabs button.on { color: var(--bg); }
@@ -187,6 +187,37 @@ h3 span { color: var(--faint); }
 @keyframes bob { 50% { transform: translateY(-4%); } }
 @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
 @keyframes twinkle { from { opacity: .2; } to { opacity: 1; } }
+
+/* ---------- гроші */
+.moneybar { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; margin-top: 8px;
+  background: var(--surface); border-radius: 18px; padding: 12px 16px; }
+.moneybar small { display: block; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.moneybar b { font: 800 22px Unbounded; letter-spacing: -.02em; }
+.moneybar b.neg { color: var(--coral); }
+.moneybar .r { text-align: right; font-weight: 700; color: var(--muted); font-size: 13px; }
+.moneybar .r span { display: block; color: var(--text); font-size: 15px; }
+.mcard { background: var(--surface); border-radius: 18px; padding: 16px; margin-bottom: 8px; }
+.mcard .big { font: 800 40px/1 Unbounded; letter-spacing: -.03em; }
+.mcard .big.neg { color: var(--coral); }
+.mcard .sub { color: var(--muted); font-weight: 600; margin-top: 6px; }
+.mrow { display: flex; justify-content: space-between; align-items: baseline; font-weight: 700; margin-bottom: 6px; gap: 10px; }
+.mrow small { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.track { position: relative; height: 10px; background: var(--line); border-radius: 9px; overflow: visible; }
+.track i { display: block; height: 100%; border-radius: 9px; background: var(--accent); transition: width 1s cubic-bezier(.2,.8,.2,1); max-width: 100%; }
+.track i.warn { background: var(--amber); } .track i.over { background: var(--coral); }
+.track .pace { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--text); border-radius: 2px; opacity: .6; }
+.cats { display: grid; gap: 14px; }
+.spark { display: flex; align-items: flex-end; gap: 4px; height: 80px; position: relative; }
+.spark i { flex: 1; border-radius: 4px 4px 2px 2px; background: var(--accent); min-height: 3px; }
+.spark i.over { background: var(--coral); } .spark i.zero { background: var(--line); }
+.spark .limit { position: absolute; left: 0; right: 0; border-top: 1.5px dashed var(--muted); opacity: .7; }
+.exp { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-weight: 600; }
+.exp:first-child { border-top: 0; }
+.exp small { display: block; color: var(--faint); font-size: 12px; }
+.exp b { font: 700 14px Unbounded; white-space: nowrap; }
+.meal { white-space: pre-wrap; font-weight: 500; font-size: 14px; line-height: 1.5; max-height: 260px; overflow: hidden; position: relative; }
+.meal.open { max-height: none; }
+.meal:not(.open)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(transparent, var(--surface)); }
 
 /* ---------- екранний час */
 .screen { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; background: var(--surface); border-radius: 18px; padding: 14px; }
@@ -305,7 +336,7 @@ const tg = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData !== un
 const inTG = !!(tg && tg.platform && tg.platform !== "unknown");
 const $ = (s) => document.querySelector(s);
 const WD = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
-const TABS = [["day", "День"], ["goals", "Цілі"], ["coll", "Колекція"], ["hist", "Історія"]];
+const TABS = [["day", "День"], ["money", "Гроші"], ["goals", "Цілі"], ["coll", "Істоти"], ["hist", "Історія"]];
 
 let D = null, demo = false, tab = "day", pending = {}, seen = new Set();
 
@@ -368,6 +399,13 @@ function demoData() {
       { id: "g2", title: "Прочитати 2 книги", emoji: "📚", progress: 240, target: 600, unit: "сторінок", pct: 40 },
       { id: "g3", title: "Відкласти гроші", emoji: "💰", progress: 5000, target: 5000, unit: "грн", pct: 100 } ],
     heat, roster,
+    money: { currency: "€", total: 450, fixed: 200, buffer: 25, flexible: 225, per_day: 7.26, food_week: 27.94, spent: 61.3, spent_today: 4.1,
+      allow_today: 7.41, left_today: 3.31, left_month: 163.7, days_left: 22, elapsed: 0.29, food_week_spent: 19.6, days: 31,
+      cats: [["food", "🛒", "Їжа", 123.75, 44.2], ["transport", "🚌", "Транспорт", 22.5, 8], ["home", "🧴", "Побут і гігієна", 22.5, 6.1], ["health", "💊", "Здоровʼя", 11.25, 0], ["comm", "📶", "Звʼязок", 11.25, 3], ["fun", "🎈", "Дозвілля", 11.25, 0], ["other", "📦", "Інше", 22.5, 0]].map(([key, emoji, name, limit, spent]) => ({ key, emoji, name, limit, spent })),
+      fixed_items: [{ name: "Житло", amount: 200 }], fixed_paid: 200,
+      recent: [{ d: new Date().toISOString().slice(0, 10), amount: 4.1, cat: "food", note: "Maxima: хліб, кефір, банани", src: "receipt" }, { d: new Date(Date.now() - 864e5).toISOString().slice(0, 10), amount: 8, cat: "transport", note: "проїзний на тиждень", src: "text" }],
+      days14: Array.from({ length: 14 }, (_, i) => ({ d: "", spent: i < 6 ? 0 : [6.2, 9.8, 4.4, 7.1, 12.3, 5.5, 3.2, 4.1][i - 6] })),
+      meal_plan: "🛒 Список покупок\nВівсянка 1 кг — 1,19 €\nЯйця 20 шт — 3,40 €\nКуряче стегно 2 кг — 6,98 €\n…\nРазом: 26,40 €\n\n🍽 Меню\nПн: вівсянка з бананом / курка з гречкою / омлет з овочами / кефір" },
   };
 }
 
@@ -394,8 +432,10 @@ function render() {
       <button class="chip" id="ptsChip" style="display:block;text-align:left;width:100%"><span class="num" id="ptsN">${fmtSigned(dayPoints())}</span> <span style="font-size:11px;color:var(--muted);font-weight:700">сьогодні</span><small>${fmtN(p.xp)} балів · ще ${fmtN(p.next - p.xp)} до ${p.level + 1} рів.</small><div class="xpbar"><i style="width:${lvlPct * 100}%"></i></div></button>
     </div>
   </div>
+  ${moneyBar()}
   <nav><div class="tabs" id="tabs"><div class="pill"></div>${TABS.map(([id, n]) => `<button data-tab="${id}">${n}${id === "coll" && unseen().length ? `<span class="dot">${unseen().length}</span>` : ""}</button>`).join("")}</div></nav>
   <section class="tab" id="t-day">${dayTab()}</section>
+  <section class="tab" id="t-money">${moneyTab()}</section>
   <section class="tab" id="t-goals">${goalsTab()}</section>
   <section class="tab" id="t-coll">${collTab()}</section>
   <section class="tab" id="t-hist">${histTab()}</section>
@@ -448,6 +488,41 @@ function grouped(items) {
   const by = {};
   items.forEach((t) => (by[t.group || "errands"] ||= []).push(t));
   return [...new Set(order)].filter((g) => by[g]).map((g) => [labels[g] || GROUP_LABELS[g], by[g]]);
+}
+
+const eur = (x, c) => `${Number(x).toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c || D.money?.currency || "€"}`;
+function moneyBar() {
+  const m = D.money;
+  if (!m) return `<button class="moneybar" data-go="money"><div><small>бюджет</small><span style="font-weight:700">Не задано — скажи боту суму на місяць</span></div><span style="color:var(--muted)">→</span></button>`;
+  return `<button class="moneybar" data-go="money"><div><small>можна сьогодні</small><b class="${m.left_today < 0 ? "neg" : ""}">${eur(Math.max(0, m.left_today))}</b></div>
+    <div class="r">залишок на життя<span>${eur(m.left_month)} · ${m.days_left} дн</span></div></button>`;
+}
+
+function bar(spent, limit, pace) {
+  const p = limit ? spent / limit : 0, cls = p > 1 ? "over" : p > 0.8 ? "warn" : "";
+  return `<div class="track"><i class="${cls}" style="width:${Math.min(100, p * 100)}%"></i>${pace != null ? `<span class="pace" style="left:${Math.min(100, pace * 100)}%"></span>` : ""}</div>`;
+}
+
+function moneyTab() {
+  const m = D.money;
+  if (!m) return `<div class="empty" style="margin-top:4px">Бюджет ще не задано.<br>Скажи боту, напр.: «на місяць у мене 450 євро, з них 200 — житло»</div>`;
+  const max = Math.max(m.allow_today * 1.5, ...m.days14.map((d) => d.spent), 1);
+  return `
+  <div class="mcard"><div class="mrow"><span>Можна витратити сьогодні</span><small>ліміт ${eur(m.allow_today)}</small></div>
+    <div class="big ${m.left_today < 0 ? "neg" : ""}">${m.left_today < 0 ? "−" + eur(-m.left_today) : eur(m.left_today)}</div>
+    <div class="sub">витрачено сьогодні ${eur(m.spent_today)} · заощаджене сьогодні збільшує ліміт завтра</div>
+    <div style="margin-top:12px">${bar(m.spent_today, m.allow_today)}</div></div>
+  <div class="mcard"><div class="mrow"><span>🛒&ensp;Їжа цього тижня</span><small>${eur(m.food_week_spent)} / ${eur(m.food_week)}</small></div>${bar(m.food_week_spent, m.food_week)}</div>
+  <div class="mcard"><div class="mrow"><span>На життя за місяць</span><small>${eur(m.spent)} / ${eur(m.flexible)}</small></div>${bar(m.spent, m.flexible, m.elapsed)}
+    <div class="sub" style="font-size:12px">риска — де маєш бути за темпом · подушка ${eur(m.buffer)} не чіпаємо</div></div>
+  <h3>Категорії</h3>
+  <div class="mcard cats">${m.cats.map((c) => `<div><div class="mrow"><span>${c.emoji}&ensp;${esc(c.name)}</span><small>${eur(c.spent)} / ${eur(c.limit)}</small></div>${bar(c.spent, c.limit, m.elapsed)}</div>`).join("")}</div>
+  <h3>14 днів <span>пунктир — ліміт дня</span></h3>
+  <div class="mcard"><div class="spark">${m.days14.map((d) => `<i class="${!d.spent ? "zero" : d.spent > m.per_day ? "over" : ""}" style="height:${Math.max(3, (d.spent / max) * 100)}%"></i>`).join("")}<span class="limit" style="bottom:${(m.per_day / max) * 100}%"></span></div></div>
+  ${m.fixed_items?.length ? `<h3>Обовʼязкові платежі <span>${eur(m.fixed_paid)} / ${eur(m.fixed)}</span></h3><div class="mcard">${m.fixed_items.map((f) => `<div class="exp"><span>${esc(f.name)}</span><b>${eur(f.amount)}</b></div>`).join("")}</div>` : ""}
+  <h3>Останні витрати</h3>
+  <div class="mcard">${m.recent.length ? m.recent.map((e) => `<div class="exp"><span>${esc(e.note || e.cat)}<small>${new Date(e.d + "T12:00").toLocaleDateString("uk-UA", { day: "numeric", month: "short" })} · ${e.src === "receipt" ? "🧾 чек" : "записано"}</small></span><b>−${eur(e.amount)}</b></div>`).join("") : `<div class="muted" style="color:var(--muted);font-weight:600">Ще нічого. Надішли боту голосове або фото чека.</div>`}</div>
+  ${m.meal_plan ? `<h3>Раціон на тиждень <span>${eur(m.food_week)}</span></h3><div class="mcard"><div class="meal" id="meal">${esc(m.meal_plan)}</div><button style="margin-top:10px;font-weight:800;color:var(--accent)" onclick="document.getElementById('meal').classList.toggle('open'); this.textContent = this.textContent === 'Показати весь' ? 'Згорнути' : 'Показати весь'">Показати весь</button></div>` : ""}`;
 }
 
 function goalsTab() {

@@ -3,7 +3,7 @@
 import hashlib
 from datetime import datetime, time, timedelta
 
-from . import agent, config, fmt, game, gcal, progress
+from . import agent, config, finance, fmt, game, gcal, progress
 from . import telegram as tg
 
 RARITY = {"common": "звичайна", "rare": "рідкісна", "epic": "епічна", "legendary": "легендарна"}
@@ -24,6 +24,9 @@ def run_jobs(state, now: datetime):
         tg.send(f"🥚 Нове яйце · {RARITY[new[0]['rarity']]} істота. Відкрий ◐ Прогрес.")
     elif new:
         tg.send(f"🥚 Нових яєць: {len(new)}. Відкрий ◐ Прогрес.")
+
+    for text in finance.alerts(state, today):
+        tg.send(text)
 
     t = now.time()
     todays = fmt.for_day(events, today)
@@ -80,7 +83,9 @@ def morning(state, now, events, late):
     shot = state["screen"].get((today - timedelta(days=1)).isoformat())
     if shot:
         text += f"\n📱 вчора {fmt.hm(shot['min'])}"
+    text += "\n" + finance.short_line(state, today)
     tg.send(text, buttons=toggle_buttons(state, events, today), html=True)
+    _weekly_meal_plan(state, today)
     if late:
         tg.send("<b>⏰ Прострочено — що робимо?</b>\n" + "\n".join(
             f"· {fmt.escape(e['title'])} · з {fmt.short_date(fmt.ev_day(e))}" for e in late),
@@ -111,10 +116,29 @@ def evening(state, now, events, tomorrow_events):
                  f"{fmt.day_block(tomorrow_events)}")
     if today.weekday() == 6:
         parts.append(week_stats(state, today))
+    s = finance.status(state, today)
+    if s:
+        c = s["currency"]
+        parts.append(f"💶 Сьогодні витрачено {finance.money(s['spent_today'], c)} з {finance.money(s['allow_today'], c)}.\n"
+                     f"Що ще купував? Голосом, текстом або фото чека.")
     parts.append("Звіт — голосом або текстом.")
     tg.send("\n\n".join(parts), buttons=toggle_buttons(state, open_habits, today), html=True)
     if open_tasks:
         tg.send("<b>Не виконано — що робимо?</b>", buttons=action_buttons(state, open_tasks, today), html=True)
+
+
+def _weekly_meal_plan(state, today):
+    """Щопонеділка (або при першому бюджеті) — новий раціон від окремого агента."""
+    if not state.get("budget"):
+        return
+    mp = state.get("meal_plan")
+    if mp and mp["week"] == finance.week_start(today).isoformat():
+        return
+    if today.weekday() != 0 and mp:
+        return
+    text = finance.make_meal_plan(agent._client(), config.OPENAI_MODEL, state, today)
+    if text:
+        tg.send(text)
 
 
 def week_stats(state, today, days=7):
