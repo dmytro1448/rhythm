@@ -1,0 +1,7 @@
+openai>=1.40
+requests>=2.31
+google-api-python-client>=2.130
+google-auth>=2.29
+cryptography>=42
+python-dotenv>=1.0
+PyYAML>=6.0

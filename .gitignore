@@ -1,0 +1,9 @@
+.env
+*.json
+!package.json
+data/state.json
+plan.yaml
+.venv/
+__pycache__/
+.DS_Store
+WindscribeInstaller

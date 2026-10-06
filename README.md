@@ -1,0 +1,68 @@
+# Ритм
+
+Мінімалістичний Telegram-асистент для ритму життя.
+
+- **Google Calendar** — єдине джерело справ і їх порядку
+- **08:00** — справи на сьогодні (кнопки ○/✓ для позначки)
+- **20:00** — підсумок дня, план на завтра, запит звіту; у неділю — статистика тижня
+- **Нагадування завчасно** — за 60 хв до справи (або свій час для кожної), для дедлайнів — за N днів
+- **Звіт текстом або голосом** — агент розуміє, позначає виконане, зберігає нотатки (енергія, інсайти)
+- **Керування голосом** — «перенеси спорт на завтра на 7», «додай дедлайн 20-го»
+
+Працює безкоштовно на GitHub Actions: запуск кожні ~5 хв, тому відповідь приходить із затримкою 1–15 хв.
+Стан (звіти, історія) зберігається зашифрованим у `data/state.enc`.
+
+## Налаштування (~20 хв)
+
+### 1. Telegram-бот
+1. [@BotFather](https://t.me/BotFather) → `/newbot` → отримай **TELEGRAM_TOKEN**.
+2. `/setcommands` → встав:
+   ```
+   today - сьогодні
+   tomorrow - завтра
+   week - 7 днів
+   stats - статистика
+   ```
+
+### 2. OpenAI
+[platform.openai.com/api-keys](https://platform.openai.com/api-keys) → **OPENAI_API_KEY**. Поповни баланс на $5 — цього вистачить на місяці.
+
+### 3. Google Calendar
+1. [console.cloud.google.com](https://console.cloud.google.com) → новий проєкт.
+2. **APIs & Services → Library** → увімкни **Google Calendar API**.
+3. **IAM & Admin → Service Accounts** → Create → далі Keys → Add key → JSON. Завантажиться файл — це **GOOGLE_SERVICE_ACCOUNT_JSON**.
+4. Скопіюй email сервісного акаунта (`...@...iam.gserviceaccount.com`).
+5. Google Calendar → Налаштування твого календаря → **Спільний доступ з певними людьми** → додай цей email з правом **«Вносити зміни в події»**.
+6. **GOOGLE_CALENDAR_ID** — твій gmail (для основного календаря).
+
+### 4. Ключ шифрування
+```bash
+python3 scripts/keygen.py
+```
+Результат — **STATE_KEY**. Збережи його окремо: без нього стан не розшифрувати.
+
+### 5. GitHub
+1. Створи **публічний** репозиторій (для приватного безкоштовних хвилин не вистачить) і запуш цю папку.
+2. **Settings → Secrets and variables → Actions → Secrets**: додай `TELEGRAM_TOKEN`, `OPENAI_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON` (весь вміст файлу), `GOOGLE_CALENDAR_ID`, `STATE_KEY`.
+3. **Actions → bot → Run workflow**. Напиши боту `/start` і запусти ще раз — бот відповість твоїм **chat_id**.
+4. Додай секрет `TELEGRAM_CHAT_ID`. Готово — далі все працює саме.
+
+Необовʼязково, у **Variables**: `TIMEZONE` (Europe/Kyiv), `MORNING_HOUR` (8), `EVENING_HOUR` (20), `REMIND_BEFORE_MIN` (60), `OPENAI_MODEL`.
+
+## Місячний план
+
+```bash
+cp plan.example.yaml plan.yaml      # заповни своїми справами
+python3 scripts/seed_plan.py         # перегляд
+python3 scripts/seed_plan.py --apply # створити в календарі
+python3 scripts/seed_plan.py --clear # прибрати все створене скриптом
+```
+Для скриптів локально: `cp .env.example .env`, заповни, `pip install -r requirements.txt`.
+
+Далі план змінюється прямо в календарі або через бота.
+
+## Локальний запуск із миттєвими відповідями
+```bash
+python3 -m bot --loop
+```
+Не запускай одночасно з GitHub (вимкни workflow на цей час) — інакше вони заберуть повідомлення один в одного.

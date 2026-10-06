@@ -1,0 +1,55 @@
+name: bot
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -q -r requirements.txt
+
+      - run: python -m bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
+          STATE_KEY: ${{ secrets.STATE_KEY }}
+          APP_KEY: ${{ secrets.APP_KEY }}
+          GITHUB_REPO: ${{ github.repository }}
+          WEBAPP_URL: ${{ vars.WEBAPP_URL }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          TIMEZONE: ${{ vars.TIMEZONE }}
+          MORNING_HOUR: ${{ vars.MORNING_HOUR }}
+          EVENING_HOUR: ${{ vars.EVENING_HOUR }}
+          REMIND_BEFORE_MIN: ${{ vars.REMIND_BEFORE_MIN }}
+
+      - name: Save state
+        if: always()
+        run: |
+          for f in data/state.enc data/progress.enc; do [ -f "$f" ] && git add "$f"; done
+          git diff --cached --quiet && exit 0
+          git config user.name "rhythm-bot"
+          git config user.email "rhythm-bot@users.noreply.github.com"
+          git commit -qm "state"
+          git pull -q --rebase
+          git push -q

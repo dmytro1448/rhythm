@@ -1,0 +1,45 @@
+# Шаблон місячного плану. Скопіюй у plan.yaml (він не потрапляє в git) і заповни.
+# Час — завжди в лапках: "07:00". remind — за скільки хвилин нагадати (0 — не нагадувати).
+
+start: 2026-10-07
+end: 2026-11-06
+
+# Регулярні справи — створюються як повторювані події до дати end
+routines:
+  - title: Підйом · вода · без телефону
+    days: [mon, tue, wed, thu, fri, sat, sun]
+    time: "07:00"
+    duration: 30
+    remind: 0
+
+  - title: Спорт
+    days: [mon, wed, fri]
+    time: "07:30"
+    duration: 60
+
+  - title: Глибока робота
+    days: [mon, tue, wed, thu, fri]
+    time: "09:00"
+    duration: 180
+
+  - title: Читання
+    days: [mon, tue, wed, thu, fri, sat, sun]
+    time: "21:30"
+    duration: 30
+    remind: 15
+
+  - title: Огляд тижня і план на наступний
+    days: [sun]
+    time: "19:00"
+    duration: 45
+
+# Разові справи та дедлайни (без time — на весь день)
+tasks:
+  - title: Записатись до лікаря
+    date: 2026-10-09
+    time: "10:00"
+    duration: 30
+
+  - title: Дедлайн — приклад
+    date: 2026-10-20
+    remind: 1440
