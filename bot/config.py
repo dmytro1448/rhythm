@@ -22,7 +22,7 @@ CHAT_ID = _int("TELEGRAM_CHAT_ID", 0)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
-TRANSCRIBE_MODEL = os.getenv("TRANSCRIBE_MODEL") or "gpt-4o-mini-transcribe"
+TRANSCRIBE_MODEL = os.getenv("TRANSCRIBE_MODEL") or "gpt-4o-transcribe"  # mini-версія ненадійна для української (тест: 9/12 проти 12/12)
 TRANSCRIBE_LANGUAGE = os.getenv("TRANSCRIBE_LANGUAGE") or "uk"
 
 # JSON-вміст ключа сервісного акаунта або шлях до файлу з ним

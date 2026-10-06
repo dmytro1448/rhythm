@@ -32,11 +32,29 @@ def read_image(image: bytes) -> dict:
     return json.loads(res.choices[0].message.content)
 
 
+VOICE_HINT = ("Українська мова. Звіт про справи й витрати: розтяжка, прес, тренування, FatSecret, пайтон, "
+              "англійська, читання, Shopify, пошук роботи, проїзний, SIM-картка, євро, чек.")
+
+
 def transcribe(audio: bytes, filename="voice.ogg") -> str:
-    res = _client().audio.transcriptions.create(
-        model=config.TRANSCRIBE_MODEL, file=(filename, audio), language=config.TRANSCRIBE_LANGUAGE
-    )
-    return res.text.strip()
+    def run(model):
+        return _client().audio.transcriptions.create(
+            model=model, file=(filename, audio), language=config.TRANSCRIBE_LANGUAGE, prompt=VOICE_HINT,
+        ).text.strip()
+
+    text = run(config.TRANSCRIBE_MODEL)
+    if not _looks_ukrainian(text):  # модель «зісковзнула» в іншу мову чи латиницю — друга спроба
+        text = run("whisper-1")
+    return text
+
+
+def _looks_ukrainian(text):
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return True
+    cyr = sum("а" <= c.lower() <= "я" or c.lower() in "іїєґ" for c in letters)
+    foreign = sum(c.lower() in "ыэъёў" for c in letters)
+    return cyr / len(letters) > 0.7 and not foreign
 
 
 def _fn(name, description, props, required=()):
@@ -62,7 +80,9 @@ TOOLS = [
         "recurrence": {"type": "string", "description": "RRULE для регулярних справ, напр. FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=12"},
         "remind_before_min": {"type": "integer", "description": "За скільки хвилин нагадати (0 — не нагадувати, 1440 — за добу, 10080 — за тиждень)"},
         "deadline": {"type": "boolean"},
-    }, ["title", "date"]),
+        "group": {"type": "string", "enum": ["regime", "body", "learn", "work", "errands"],
+                  "description": "Група: regime — сон/режим, body — тіло/спорт/їжа, learn — навчання, work — робота/гроші/проєкти, errands — побутові справи"},
+    }, ["title", "date", "group"]),
     _fn("update_event", "Змінити/перенести справу. Перенесення на пізнішу дату коштує балів; звички переносити не можна. Вказуй лише поля, що змінюються.", {
         "event_id": {"type": "string"}, "title": {"type": "string"}, "date": _DATE,
         "start_time": _TIME, "end_time": _TIME, "description": {"type": "string"},
@@ -101,7 +121,7 @@ SYSTEM = """Ти — асистент ритму життя в Telegram. Мов�
 Дати пиши як «8 жов», не ISO. Формати відповідей (бали — лише ті, що реально нараховані інструментами):
 виконано: «✓ Розтяжка, Прес · +20»
 перенесено: «↷ Звіт → 8 жов · −5»
-додано: «+ Подати документи · 15 жов · дедлайн» (без балів)
+додано: «+ Купити проїзний · 7 жов» або «+ Подати документи · 9 жов · дедлайн» (позначка «дедлайн» — лише якщо deadline=true; без балів)
 скасовано: «✕ Звіт · −5»
 питання: «<повна назва задачі>: перенести на 8 жов (−5) чи скасувати (−5)?»
 Не дописуй загальну суму балів у відповідь на звіт — лише бали за конкретні дії.
@@ -109,6 +129,7 @@ SYSTEM = """Ти — асистент ритму життя в Telegram. Мов�
 звичку просять перенести: «Звички не переносяться. Сьогодні ще можна зробити — інакше −5 о 04:00.»
 
 Зараз: {now}.
+Найближчі дати: {calendar}
 Бали сьогодні: {points} (на питання про бали — бери лише це число й журнал нижче, не рахуй сам).
 Журнал балів сьогодні:
 {ledger}
@@ -119,8 +140,9 @@ SYSTEM = """Ти — асистент ритму життя в Telegram. Мов�
 Правила:
 1. Звіт (текст/голос) → зістав зі справами по суті й виклич mark_done. Самопочуття, енергію, інсайти, перешкоди → add_log. Звіт за вчора теж приймай.
 2. Звички (habit) не переносяться ніколи. Невиконана звичка = пропуск, −5 о 04:00.
+   Прохання перенести звичку («перенеси пайтон на завтра») → відповідай лише про цю звичку: «Звички не переносяться. Сьогодні ще можна зробити — інакше −5 о 04:00.» Не питай про інші справи.
 3. Невиконані/прострочені task і deadline — НЕ переносиш сам. Питаєш, що робити, з ціною: «перенести на <дата> (−N) / скасувати (−N)?». Дієш лише після відповіді.
-4. Нові справи з голосу/тексту → create_event. Обовʼязкове з кінцевою датою → deadline=true. Регулярне → recurrence. Без часу → пункт дня.
+4. Нові справи з голосу/тексту → create_event з правильною group. Не створюй справу, якщо така вже є в календарі на цю дату. У звіті фраза на кшталт «пайтон завтра» про щоденну звичку означає лише «сьогодні не зробив» — нічого не створюй і не переноси. Обовʼязкове з кінцевою датою → deadline=true. Регулярне → recurrence. Без часу → пункт дня.
 5. Екранний час (цифра або скрін) → log_screen_time. Прогрес по цілях → update_goal (add); справи з match цілі рахуються самі.
 6. Видаляєш лише на явне прохання.
 
@@ -166,12 +188,28 @@ def _system(state, now):
     od = "\n".join(f"{fmt.plain(e, done)} · з {fmt.ev_day(e).isoformat()}" for e in overdue(state, events, now)) or "(немає)"
     return SYSTEM.format(
         now=f"{fmt.WEEKDAYS[now.weekday()]}, {now:%Y-%m-%d %H:%M} ({config.TZ.key})",
+        calendar=", ".join(f"{fmt.WEEKDAYS[(today + timedelta(days=i)).weekday()]} = {(today + timedelta(days=i)).isoformat()}"
+                           for i in range(1, 8)),
         points=fmt.signed(game.day_points(state, today)),
         ledger="\n".join(f"{fmt.signed(x['p'])} {x['w']}" for x in state["ledger"] if x["d"] == today.isoformat()) or "(порожньо)",
         today=today.isoformat(), today_events=block(today), overdue=od,
         tomorrow_events=block(tomorrow), log=log, goals=goals,
         yesterday_events=block(today - timedelta(days=1)),
     )
+
+
+def _stem(title):
+    words = [w for w in "".join(c if c.isalnum() else " " for c in title.lower()).split() if len(w) >= 4]
+    return words[0][:5] if words else title.lower()[:5]
+
+
+def _existing_twin(title, day):
+    """Назва справи, що вже стоїть цього дня і починається з того ж ключового слова (захист від дублікатів)."""
+    stem = _stem(title)
+    for e in fmt.for_day(gcal.list_events(day, day), day):
+        if _stem(e["title"]) == stem:
+            return e["title"]
+    return None
 
 
 def _ev(e, done):
@@ -233,10 +271,13 @@ def _exec(name, a, state, now):
     if name == "get_events":
         return [_ev(e, state["done"]) for e in gcal.list_events(_d(a["from_date"]), _d(a["to_date"]))]
     if name == "create_event":
+        twin = _existing_twin(a["title"], _d(a["date"]))
+        if twin and not a.get("recurrence"):
+            return {"error": f"Вже є в календарі на цю дату: «{twin}». Нічого не створено."}
         rec = [a["recurrence"]] if a.get("recurrence") else None
         e = gcal.create_event(a["title"], _d(a["date"]), a.get("start_time"), a.get("end_time"),
                               a.get("duration_min"), a.get("description", ""), rec, a.get("remind_before_min"),
-                              deadline=bool(a.get("deadline")))
+                              deadline=bool(a.get("deadline")), group=a.get("group"))
         return _ev(e, state["done"])
     if name == "update_event":
         try:
@@ -315,13 +356,13 @@ def run(state, text, now: datetime):
              f"усього {state['stats']['xp']}. Числа з попередніх відповідей застаріли.")
     messages = [{"role": "system", "content": _system(state, now)}, *state["history"][-16:],
                 {"role": "system", "content": fresh}, {"role": "user", "content": text}]
-    reply, used, checked = "Готово.", set(), False
+    reply, used, checked = "Не вийшло виконати — повтори, будь ласка, інакше.", set(), False
     for _ in range(9):
         msg = _client().chat.completions.create(
             model=config.OPENAI_MODEL, messages=messages, tools=TOOLS, **_model_params(),
         ).choices[0].message
         if not msg.tool_calls:
-            reply = (msg.content or reply).strip()
+            reply = (msg.content or "").strip() or reply
             claimed = _claimed_without_tool(reply, used)
             if claimed and not checked:
                 # Модель «підтвердила» дію, не виконавши її — змушуємо виконати або виправити відповідь

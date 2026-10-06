@@ -46,13 +46,14 @@ def snapshot(state, events, now: datetime, late=()):
         "today": {
             "date": today.isoformat(), "title": fmt.day_title(today),
             "tasks": [{"id": e["id"], "title": e["title"], "time": "" if e["all_day"] else fmt.when(e),
-                       "kind": e["kind"], "pts": game.DONE[e["kind"]],
+                       "kind": e["kind"], "pts": game.DONE[e["kind"]], "group": e.get("group", "errands"),
                        "done": e["id"] in state["done"]} for e in tasks],
             "points": game.day_points(state, today),
             "ledger": [x for x in state["ledger"] if x["d"] == today.isoformat()][-30:],
         },
         "overdue": [{"title": e["title"], "kind": e["kind"], "since": fmt.ev_day(e).isoformat()} for e in late],
-        "tomorrow": [{"title": e["title"], "time": "" if e["all_day"] else fmt.when(e)}
+        "groups": [[k, fmt.GROUP_LABEL[k]] for k in fmt.GROUP_KEYS],
+    "tomorrow": [{"title": e["title"], "time": "" if e["all_day"] else fmt.when(e), "group": e.get("group", "errands"), "kind": e["kind"]}
                      for e in fmt.for_day(events, today + timedelta(days=1))],
         "player": {
             "xp": xp, "level": lvl, "floor": game.level_floor(lvl), "next": game.level_floor(lvl + 1),

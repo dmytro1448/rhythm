@@ -8,7 +8,7 @@ from pathlib import Path
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-from . import config
+from . import config, fmt
 
 DONE_COLOR = "8"  # графітовий — виконані справи
 
@@ -44,7 +44,10 @@ def _parse(ev):
         kind = "deadline"
     else:
         kind = "task"
+    group, rank = fmt.classify(title, kind, props.get("group", ""))
     return {
+        "group": group,
+        "rank": rank,
         "kind": kind,
         "moves": int(props.get("moves", "0") or 0),
         "id": ev["id"],
@@ -108,7 +111,8 @@ def rrule_until(last: date):
 
 
 def create_event(title, day: date, start_time=None, end_time=None, duration_min=None,
-                 description="", recurrence=None, remind_before_min=None, source=None, deadline=False):
+                 description="", recurrence=None, remind_before_min=None, source=None, deadline=False,
+                 group=None):
     start, end = _times(day, start_time, end_time, duration_min)
     body = {"summary": title, "start": start, "end": end}
     if description:
@@ -122,6 +126,8 @@ def create_event(title, day: date, start_time=None, end_time=None, duration_min=
         props["source"] = source
     if deadline:
         props["kind"] = "deadline"
+    if group:
+        props["group"] = group
     if props:
         body["extendedProperties"] = {"private": props}
     ev = _events().insert(calendarId=config.CALENDAR_ID, body=body).execute()

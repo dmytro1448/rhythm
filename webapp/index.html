@@ -114,6 +114,12 @@ h3 span { color: var(--faint); }
 .mini { display: grid; gap: 2px; background: var(--surface); border-radius: 16px; padding: 6px 14px; }
 .mini div { display: flex; gap: 12px; padding: 8px 0; color: var(--muted); font-weight: 600; }
 .mini div + div { border-top: 1px solid var(--line); }
+.ghead { display: flex; align-items: center; justify-content: space-between; margin: 16px 4px 8px; font-weight: 800; font-size: 14px; }
+.ghead:first-child { margin-top: 4px; }
+.ghead span { color: var(--faint); font-size: 12px; font-weight: 700; }
+.ghead.full span { color: var(--accent); }
+.mini .gl { color: var(--text); font-weight: 800; font-size: 13px; padding-top: 12px; }
+.mini .gl:first-child { padding-top: 6px; }
 .mini time:empty { display: none; }
 .task time:empty { display: none; }
 .mini time { width: 84px; flex: none; color: var(--faint); font-size: 12px; font-weight: 700; padding-top: 2px; }
@@ -348,14 +354,14 @@ function demoData() {
   const roster = rarities.map((r, i) => ({ id: "a" + i, rarity: r, hint: hints[i], progress: i < 8 ? 1 : [0.6, 0.35, 0.8, 0.2, 0.5, 0.1][i % 6], unlocked: [0, 1, 2, 3, 6, 7, 12].includes(i) ? iso(today) : null, seed: [0, 1, 2, 3, 6, 7, 12].includes(i) ? 1000 + i * 7919 : null }));
   return {
     v: 1, today: { date: iso(today), title: "Сьогодні", tasks: [
-      { id: "t1", title: "Підйом до 9:00", time: "09:00", kind: "habit", pts: 10, done: true },
-      { id: "t2", title: "Їжа у FatSecret", time: "", kind: "habit", pts: 10, done: true },
-      { id: "t3", title: "Розтяжка", time: "", kind: "habit", pts: 10, done: false },
-      { id: "t4", title: "Python-курс · 1 год", time: "", kind: "habit", pts: 10, done: false },
-      { id: "t6", title: "Подати документи на проїзний", time: "", kind: "deadline", pts: 40, done: false } ],
+      { id: "t1", title: "Підйом до 9:00", time: "09:00", kind: "habit", pts: 10, done: true, group: "regime" },
+      { id: "t2", title: "Їжа у FatSecret", time: "", kind: "habit", pts: 10, done: true, group: "body" },
+      { id: "t3", title: "Розтяжка", time: "", kind: "habit", pts: 10, done: false, group: "body" },
+      { id: "t4", title: "Python-курс · 1 год", time: "", kind: "habit", pts: 10, done: false, group: "learn" },
+      { id: "t6", title: "Подати документи на проїзний", time: "", kind: "deadline", pts: 40, done: false, group: "errands" } ],
       points: 20, ledger: [{ d: "", p: 10, w: "✓ Підйом до 9:00" }, { d: "", p: 10, w: "✓ Їжа у FatSecret" }] },
     overdue: [{ title: "Дізнатись про SIM-картку", kind: "task", since: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10) }],
-    tomorrow: [{ title: "Тренування", time: "" }, { title: "Англійська · 2 уроки", time: "" }],
+    tomorrow: [{ title: "Тренування", time: "", group: "body" }, { title: "Англійська · 2 уроки", time: "", group: "learn" }],
     player: { xp: 640, level: 4, floor: 600, next: 1000, streak: 6, best: 9, tasks: 58, reports: 19, voice: 11, perfect: 4 },
     goals: [
       { id: "g1", title: "Тренування", emoji: "🏃", progress: 9, target: 12, unit: "разів", pct: 75 },
@@ -416,11 +422,12 @@ function dayTab() {
   return `
   ${nu.length ? `<button class="banner" data-go="coll"><div class="egg">${eggSVG(nu[0].rarity, 1)}</div>${nu.length} ${plural(nu.length, "нове яйце", "нові яйця", "нових яєць")} чекає<span>→</span></button>` : ""}
   <h3>Сьогодні <span>${D.today.tasks.filter(taskDone).length}/${ts.length}</span></h3>
-  ${ts.length ? `<div class="tasks">${ts.map((t) => `<button class="task ${taskDone(t) ? "done" : ""} ${t.id in pending ? "pending" : ""}" data-task="${esc(t.id)}"><div class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></svg></div><div class="t">${esc(t.title)}${t.kind === "deadline" ? '<span class="kd">дедлайн</span>' : ""}</div>${t.time ? `<time>${esc(t.time)}</time>` : `<span class="pts">+${t.pts}</span>`}</button>`).join("")}</div>` : `<div class="empty">Вільний день. Відпочинок — теж частина ритму.</div>`}
+  ${ts.length ? grouped(ts).map(([label, items]) => { const n = items.filter(taskDone).length;
+    return `<div class="ghead ${n === items.length ? "full" : ""}" data-g="${esc(label)}">${label.replace(" ", "&nbsp; ")}<span>${n}/${items.length}</span></div><div class="tasks">${items.map((t) => `<button class="task ${taskDone(t) ? "done" : ""} ${t.id in pending ? "pending" : ""}" data-task="${esc(t.id)}"><div class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></svg></div><div class="t">${esc(t.title)}${t.kind === "deadline" ? '<span class="kd">дедлайн</span>' : ""}</div>${t.time ? `<time>${esc(t.time)}</time>` : `<span class="pts">+${t.pts}</span>`}</button>`).join("")}</div>`; }).join("") : `<div class="empty">Вільний день. Відпочинок — теж частина ритму.</div>`}
   ${D.overdue?.length ? `<h3>Прострочено <span>−бали щодня</span></h3><div class="late">${D.overdue.map((o) => `<div>${esc(o.title)}<small>з ${new Date(o.since + "T12:00").toLocaleDateString("uk-UA", { day: "numeric", month: "short" })}</small></div>`).join("")}<div style="color:var(--muted);font-size:13px">Скажи боту: перенести, виконано чи скасувати</div></div>` : ""}
   ${screenCard()}
   ${next ? `<h3>Наступне яйце</h3><button class="next" data-go="coll"><div class="egg">${eggSVG(next.rarity, next.progress >= 0.66 ? 2 : next.progress >= 0.33 ? 1 : 0)}</div><div><b>${esc(next.hint)}</b><small>${rarName(next.rarity)} · ${Math.round(next.progress * 100)}%</small><div class="bar"><i style="width:${next.progress * 100}%;background:${RARITY_COLOR[next.rarity]}"></i></div></div></button>` : ""}
-  ${D.tomorrow?.length ? `<h3>Завтра</h3><div class="mini">${D.tomorrow.map((t) => `<div><time>${esc(t.time)}</time>${esc(t.title)}</div>`).join("")}</div>` : ""}`;
+  ${D.tomorrow?.length ? `<h3>Завтра <span>${D.tomorrow.length}</span></h3><div class="mini">${grouped(D.tomorrow).map(([label, items]) => `<div class="gl">${label}</div>` + items.map((t) => `<div>${t.kind === "deadline" ? "⚑ " : ""}${esc(t.title)}<time style="margin-left:auto;width:auto">${esc(t.time)}</time></div>`).join("")).join("")}</div>` : ""}`;
 }
 
 const hm = (m) => m >= 60 ? `${Math.floor(m / 60)} год ${String(m % 60).padStart(2, "0")} хв` : `${m} хв`;
@@ -431,6 +438,16 @@ function screenCard() {
   const diff = prev ? last.screen - prev.screen : 0;
   const day = new Date(last.d + "T12:00").toLocaleDateString("uk-UA", { weekday: "long" });
   return `<h3>Екранний час <span>${day}</span></h3><button class="screen" data-go="hist" style="width:100%;text-align:left"><div class="ic">📱</div><div><b>${hm(last.screen)}</b><small>${s.length > 1 ? `в середньому ${hm(Math.round(s.slice(-7).reduce((a, h) => a + h.screen, 0) / Math.min(7, s.length)))}` : "перший замір"}</small></div>${prev ? `<span class="trend ${diff <= 0 ? "down" : "up"}">${diff <= 0 ? "↓" : "↑"} ${hm(Math.abs(diff))}</span>` : ""}</button>`;
+}
+
+const GROUP_ORDER = ["regime", "body", "learn", "work", "errands"];
+const GROUP_LABELS = { regime: "🌅 Режим", body: "🏃 Тіло", learn: "📚 Навчання", work: "💼 Робота і гроші", errands: "📋 Справи" };
+function grouped(items) {
+  const labels = Object.fromEntries(D.groups || Object.entries(GROUP_LABELS));
+  const order = (D.groups || []).map((g) => g[0]).concat(GROUP_ORDER);
+  const by = {};
+  items.forEach((t) => (by[t.group || "errands"] ||= []).push(t));
+  return [...new Set(order)].filter((g) => by[g]).map((g) => [labels[g] || GROUP_LABELS[g], by[g]]);
 }
 
 function goalsTab() {
@@ -542,6 +559,10 @@ function toggleTask(id, el, ev) {
   $("#pctN").textContent = st.pct;
   $("#pctS").textContent = `${st.n} з ${st.all} ${plural(st.all, "справи", "справ", "справ")}`;
   $("#t-day h3 span").textContent = `${st.n}/${st.all}`;
+  const head = el.parentElement.previousElementSibling, items = [...el.parentElement.children];
+  const n = items.filter((x) => x.classList.contains("done")).length;
+  head.querySelector("span").textContent = `${n}/${items.length}`;
+  head.classList.toggle("full", n === items.length);
   setRing(st.pct);
   if (st.pct === 100 && before < 100) { haptic("n", "success"); confetti(140); toast("Ідеальний день ★ +30 о 04:00"); }
   updateSave();

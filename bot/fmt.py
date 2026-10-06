@@ -33,24 +33,59 @@ def when(e):
     return f"{s:%H:%M}"
 
 
+# Групи справ у порядку показу. Ключові слова задають і групу, і порядок усередині неї.
+GROUPS = [
+    ("regime", "🌅", "Режим", ["підйом", "прокин", "відбій", "сон"]),
+    ("body", "🏃", "Тіло", ["розтяж", "прес", "тренуван", "спорт", "біг", "fatsecret", "їжа", "харч"]),
+    ("learn", "📚", "Навчання", ["python", "пайтон", "англ", "читан", "книг", "курс", "урок"]),
+    ("work", "💼", "Робота і гроші", ["shopify", "магазин", "робот", "ваканс", "відгук", "бюджет", "витрат"]),
+    ("errands", "📋", "Справи", []),
+]
+GROUP_KEYS = [g[0] for g in GROUPS]
+GROUP_LABEL = {k: f"{em} {name}" for k, em, name, _ in GROUPS}
+
+
+def classify(title: str, kind: str, explicit: str = ""):
+    """(група, порядок у групі). Явна група з календаря має пріоритет."""
+    low = title.lower()
+    for key, _, _, words in GROUPS:
+        for i, w in enumerate(words):
+            if w in low:
+                return (explicit or key), i
+    return (explicit or "errands"), 99
+
+
 def line(e, done_ids=None):
     mark = "· "
     if done_ids is not None:
         mark = "✓ " if e["id"] in done_ids else "○ "
+    flag = "⚑ " if e.get("kind") == "deadline" else ""
     if e["all_day"]:
-        return f"{mark}{escape(e['title'])}"
-    return f"{mark}<code>{when(e)}</code>  {escape(e['title'])}"
+        return f"{mark}{flag}{escape(e['title'])}"
+    return f"{mark}{flag}{escape(e['title'])} <code>{when(e)}</code>"
 
 
 def sort_key(e):
-    """Спершу справи з часом, потім пункти дня."""
-    return (e["all_day"], e["start"].isoformat() if not e["all_day"] else "", e["title"])
+    """Групи по порядку → дедлайни першими → порядок ключових слів → час → назва."""
+    return (GROUP_KEYS.index(e.get("group", "errands")), e.get("kind") != "deadline", e.get("rank", 99),
+            e["start"].isoformat() if not e["all_day"] else "", e["title"])
 
 
 def day_block(events, done_ids=None):
     if not events:
         return "<i>вільний день</i>"
-    return "\n".join(line(e, done_ids) for e in events)
+    out, cur = [], None
+    for e in sorted(events, key=sort_key):
+        g = e.get("group", "errands")
+        if g != cur:
+            if cur is not None:
+                out.append("")
+            done = sum(x["id"] in done_ids for x in events if x.get("group", "errands") == g) if done_ids is not None else None
+            total = sum(1 for x in events if x.get("group", "errands") == g)
+            out.append(f"<b>{GROUP_LABEL[g]}</b>" + (f" · {done}/{total}" if done is not None else ""))
+            cur = g
+        out.append(line(e, done_ids))
+    return "\n".join(out)
 
 
 def plain(e, done_ids):

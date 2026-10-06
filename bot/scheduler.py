@@ -56,7 +56,8 @@ def toggle_buttons(state, events, day):
     rows = []
     for e in events[:14]:
         mark = "✓" if e["id"] in state["done"] else "○"
-        rows.append([(f"{mark} {e['title'][:36]}", f"t:{_key(state, e, day)}")])
+        em = fmt.GROUP_LABEL[e.get("group", "errands")].split()[0]
+        rows.append([(f"{mark} {em} {e['title'][:34]}", f"t:{_key(state, e, day)}")])
     return rows
 
 
