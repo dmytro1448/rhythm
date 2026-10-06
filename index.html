@@ -103,6 +103,8 @@ h3 span { color: var(--faint); }
 .mini { display: grid; gap: 2px; background: var(--surface); border-radius: 16px; padding: 6px 14px; }
 .mini div { display: flex; gap: 12px; padding: 8px 0; color: var(--muted); font-weight: 600; }
 .mini div + div { border-top: 1px solid var(--line); }
+.mini time:empty { display: none; }
+.task time:empty { display: none; }
 .mini time { width: 84px; flex: none; color: var(--faint); font-size: 12px; font-weight: 700; padding-top: 2px; }
 
 /* ---------- яйце-тизер */
@@ -168,6 +170,18 @@ h3 span { color: var(--faint); }
 @keyframes bob { 50% { transform: translateY(-4%); } }
 @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
 @keyframes twinkle { from { opacity: .2; } to { opacity: 1; } }
+
+/* ---------- екранний час */
+.screen { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; background: var(--surface); border-radius: 18px; padding: 14px; }
+.screen .ic { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font-size: 20px; background: color-mix(in srgb, var(--sky) 18%, transparent); }
+.screen b { font: 700 20px Unbounded; letter-spacing: -.02em; display: block; }
+.screen small { color: var(--muted); font-weight: 600; }
+.trend { font-weight: 800; font-size: 13px; padding: 6px 10px; border-radius: 10px; }
+.trend.down { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.trend.up { color: var(--coral); background: color-mix(in srgb, var(--coral) 14%, transparent); }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 90px; }
+.bars i { flex: 1; background: var(--sky); border-radius: 4px 4px 2px 2px; min-height: 3px; opacity: .85; }
+.bars i.empty { background: var(--line); opacity: .5; }
 
 /* ---------- історія */
 .heat-wrap { background: var(--surface); border-radius: 18px; padding: 14px; }
@@ -316,19 +330,19 @@ function demoData() {
   for (let i = 41; i >= 0; i--) {
     const d = new Date(today); d.setDate(d.getDate() - i);
     const planned = i > 30 ? 0 : 4 + (i % 3), done = i > 30 ? 0 : Math.min(planned, Math.round(planned * (0.4 + ((i * 37) % 60) / 100)));
-    heat.push({ d: iso(d), planned, done, pct: planned ? Math.round((100 * done) / planned) : null, energy: i > 30 ? null : 2 + ((i * 7) % 4), notes: i === 2 ? ["Виспався, багато енергії зранку"] : [], report: i < 25 });
+    heat.push({ d: iso(d), planned, done, pct: planned ? Math.round((100 * done) / planned) : null, energy: i > 30 ? null : 2 + ((i * 7) % 4), notes: i === 2 ? ["Виспався, багато енергії зранку"] : [], report: i < 25, screen: i < 12 ? 300 - (12 - i) * 9 + ((i * 53) % 70) : null });
   }
   const rarities = ["common", "common", "common", "common", "common", "common", "rare", "rare", "rare", "rare", "rare", "rare", "epic", "epic", "epic", "epic", "epic", "epic", "legendary", "legendary", "legendary"];
   const hints = ["Виконай першу справу", "Надішли перший звіт", "Надішли перший голосовий звіт", "Серія 3 дні", "10 виконаних справ", "Досягни 3 рівня", "Перший день на 100%", "7 звітів", "Серія 7 днів", "50 виконаних справ", "Будь-яка ціль на 50%", "10 голосових звітів", "Досягни 5 рівня", "5 днів на 100%", "Серія 14 днів", "Досягни будь-якої цілі", "100 виконаних справ", "20 днів за місяць ≥70%", "Досягни 10 рівня", "Серія 30 днів", "Всі цілі місяця на 100%"];
   const roster = rarities.map((r, i) => ({ id: "a" + i, rarity: r, hint: hints[i], progress: i < 8 ? 1 : [0.6, 0.35, 0.8, 0.2, 0.5, 0.1][i % 6], unlocked: [0, 1, 2, 3, 6, 7, 12].includes(i) ? iso(today) : null, seed: [0, 1, 2, 3, 6, 7, 12].includes(i) ? 1000 + i * 7919 : null }));
   return {
     v: 1, today: { date: iso(today), title: "Сьогодні", tasks: [
-      { id: "t1", title: "Підйом · вода · без телефону", time: "07:00–07:30", done: true },
-      { id: "t2", title: "Спорт", time: "07:30–08:30", done: true },
-      { id: "t3", title: "Глибока робота", time: "09:00–12:00", done: false },
-      { id: "t4", title: "Англійська", time: "18:00–18:45", done: false },
-      { id: "t5", title: "Читання", time: "21:30–22:00", done: false } ] },
-    tomorrow: [{ title: "Спорт", time: "07:30–08:30" }, { title: "Дзвінок з Андрієм", time: "10:00–10:30" }],
+      { id: "t1", title: "Підйом до 9:00", time: "09:00", done: true },
+      { id: "t2", title: "Їжа у FatSecret", time: "", done: true },
+      { id: "t3", title: "Розтяжка", time: "", done: false },
+      { id: "t4", title: "Python-курс · 1 год", time: "", done: false },
+      { id: "t5", title: "Shopify-магазин · 1 год", time: "", done: false } ] },
+    tomorrow: [{ title: "Тренування", time: "" }, { title: "Англійська · 2 уроки", time: "" }],
     player: { xp: 640, level: 4, floor: 600, next: 1000, streak: 6, best: 9, tasks: 58, reports: 19, voice: 11, perfect: 4 },
     goals: [
       { id: "g1", title: "Тренування", emoji: "🏃", progress: 9, target: 12, unit: "разів", pct: 75 },
@@ -390,8 +404,19 @@ function dayTab() {
   ${nu.length ? `<button class="banner" data-go="coll"><div class="egg">${eggSVG(nu[0].rarity, 1)}</div>${nu.length} ${plural(nu.length, "нове яйце", "нові яйця", "нових яєць")} чекає<span>→</span></button>` : ""}
   <h3>Сьогодні <span>${D.today.tasks.filter(taskDone).length}/${ts.length}</span></h3>
   ${ts.length ? `<div class="tasks">${ts.map((t) => `<button class="task ${taskDone(t) ? "done" : ""} ${t.id in pending ? "pending" : ""}" data-task="${esc(t.id)}"><div class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></svg></div><div class="t">${esc(t.title)}</div><time>${esc(t.time)}</time></button>`).join("")}</div>` : `<div class="empty">Вільний день. Відпочинок — теж частина ритму.</div>`}
+  ${screenCard()}
   ${next ? `<h3>Наступне яйце</h3><button class="next" data-go="coll"><div class="egg">${eggSVG(next.rarity, next.progress >= 0.66 ? 2 : next.progress >= 0.33 ? 1 : 0)}</div><div><b>${esc(next.hint)}</b><small>${rarName(next.rarity)} · ${Math.round(next.progress * 100)}%</small><div class="bar"><i style="width:${next.progress * 100}%;background:${RARITY_COLOR[next.rarity]}"></i></div></div></button>` : ""}
   ${D.tomorrow?.length ? `<h3>Завтра</h3><div class="mini">${D.tomorrow.map((t) => `<div><time>${esc(t.time)}</time>${esc(t.title)}</div>`).join("")}</div>` : ""}`;
+}
+
+const hm = (m) => m >= 60 ? `${Math.floor(m / 60)} год ${String(m % 60).padStart(2, "0")} хв` : `${m} хв`;
+function screenCard() {
+  const s = D.heat.filter((h) => h.screen != null);
+  if (!s.length) return `<h3>Екранний час</h3><div class="screen"><div class="ic">📱</div><div><b style="font-size:15px;font-family:Manrope">Скинь скрін у бот</b><small>Screen Time — і тут зʼявиться твій прогрес</small></div></div>`;
+  const last = s[s.length - 1], prev = s[s.length - 2];
+  const diff = prev ? last.screen - prev.screen : 0;
+  const day = new Date(last.d + "T12:00").toLocaleDateString("uk-UA", { weekday: "long" });
+  return `<h3>Екранний час <span>${day}</span></h3><button class="screen" data-go="hist" style="width:100%;text-align:left"><div class="ic">📱</div><div><b>${hm(last.screen)}</b><small>${s.length > 1 ? `в середньому ${hm(Math.round(s.slice(-7).reduce((a, h) => a + h.screen, 0) / Math.min(7, s.length)))}` : "перший замір"}</small></div>${prev ? `<span class="trend ${diff <= 0 ? "down" : "up"}">${diff <= 0 ? "↓" : "↑"} ${hm(Math.abs(diff))}</span>` : ""}</button>`;
 }
 
 function goalsTab() {
@@ -439,6 +464,10 @@ function histTab() {
   return `<h3 style="margin-top:4px">6 тижнів</h3>
   <div class="heat-wrap"><div class="wd">${WD.map((d) => `<span>${d}</span>`).join("")}</div><div class="heat">${cells.join("")}</div>
   <div class="legend">менше ${[10, 40, 70, 100].map((v) => `<i style="background:${heatColor(v)}"></i>`).join("")} більше</div></div>
+  <h3>Екранний час <span>14 днів</span></h3>
+  <div class="energy">${(() => { const last = heat.slice(-14), max = Math.max(60, ...last.map((h) => h.screen || 0));
+    return last.some((h) => h.screen != null) ? `<div class="bars">${last.map((h) => `<i class="${h.screen == null ? "empty" : ""}" style="height:${h.screen == null ? 3 : Math.max(4, (h.screen / max) * 100)}%"></i>`).join("")}</div><div class="legend" style="justify-content:space-between"><span>${hm(max)} макс</span><span>менше = краще</span></div>`
+    : `<div style="padding:20px 0;text-align:center;color:var(--muted);font-weight:600">Надсилай скріни екранного часу в бот</div>`; })()}</div>
   <h3>Енергія <span>1–5</span></h3>
   <div class="energy">${pts.length > 1 ? `<svg viewBox="0 0 300 90" preserveAspectRatio="none">
     ${[1, 3, 5].map((e) => `<line x1="0" x2="300" y1="${y(e)}" y2="${y(e)}" stroke="var(--line)" stroke-dasharray="2 4"/>`).join("")}
@@ -548,7 +577,7 @@ function showDay(h) {
   haptic("s");
   const d = new Date(h.d + "T12:00");
   openSheet(`<h2>${d.toLocaleDateString("uk-UA", { weekday: "long", day: "numeric", month: "long" })}</h2>
-    <div class="muted">${h.planned ? `${h.done} з ${h.planned} справ · ${h.pct}%` : "Справ не було"}${h.energy ? ` · енергія ${h.energy}/5` : ""}${h.report ? " · звіт ✓" : ""}</div>
+    <div class="muted">${h.planned ? `${h.done} з ${h.planned} справ · ${h.pct}%` : "Справ не було"}${h.energy ? ` · енергія ${h.energy}/5` : ""}${h.report ? " · звіт ✓" : ""}${h.screen != null ? ` · 📱 ${hm(h.screen)}` : ""}</div>
     ${h.planned ? `<div class="bar" style="margin-top:14px"><i style="width:${h.pct}%;background:var(--accent)"></i></div>` : ""}
     ${(h.notes || []).map((n) => `<div class="note">${esc(n)}</div>`).join("") || `<div class="note" style="color:var(--muted)">Нотаток немає</div>`}`);
 }
