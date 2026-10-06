@@ -188,6 +188,23 @@ h3 span { color: var(--faint); }
 @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
 @keyframes twinkle { from { opacity: .2; } to { opacity: 1; } }
 
+/* ---------- дедлайни */
+.dls { display: grid; gap: 8px; margin-top: 8px; }
+.dl { display: grid; grid-template-columns: 62px 1fr; gap: 14px; align-items: center; background: var(--surface); border-radius: 18px; padding: 12px 14px;
+  position: relative; overflow: hidden; --dc: var(--accent); }
+.dl::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--dc); }
+.dl.soon { --dc: var(--amber); } .dl.hot { --dc: var(--coral); }
+.dl.hot { background: color-mix(in srgb, var(--coral) 10%, var(--surface)); }
+.dl .cnt { text-align: center; }
+.dl .cnt b { display: block; font: 800 28px/1 Unbounded; color: var(--dc); letter-spacing: -.03em; }
+.dl .cnt small { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.dl .t { font-weight: 800; font-size: 15px; line-height: 1.25; }
+.dl .meta { color: var(--muted); font-size: 12px; font-weight: 600; margin-top: 3px; }
+.dl .track { margin-top: 8px; height: 6px; }
+.dl .track i { background: var(--dc); }
+.dl.hot .cnt b { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+
 /* ---------- гроші */
 .moneybar { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; text-align: left; margin-top: 8px;
   background: var(--surface); border-radius: 18px; padding: 12px 16px; }
@@ -391,6 +408,8 @@ function demoData() {
       { id: "t4", title: "Python-курс · 1 год", time: "", kind: "habit", pts: 10, done: false, group: "learn" },
       { id: "t6", title: "Подати документи на проїзний", time: "", kind: "deadline", pts: 40, done: false, group: "errands" } ],
       points: 20, ledger: [{ d: "", p: 10, w: "✓ Підйом до 9:00" }, { d: "", p: 10, w: "✓ Їжа у FatSecret" }] },
+    deadlines: [{ title: "Знайти роботу", date: new Date(Date.now() + 5 * 864e5).toISOString().slice(0, 10), days: 5, moves: 0, goal: { pct: 0 } },
+      { title: "Запуск Shopify-магазину", date: new Date(Date.now() + 25 * 864e5).toISOString().slice(0, 10), days: 25, moves: 0, goal: { pct: 35 } }],
     overdue: [{ title: "Дізнатись про SIM-картку", kind: "task", since: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10) }],
     tomorrow: [{ title: "Тренування", time: "", group: "body" }, { title: "Англійська · 2 уроки", time: "", group: "learn" }],
     player: { xp: 640, level: 4, floor: 600, next: 1000, streak: 6, best: 9, tasks: 58, reports: 19, voice: 11, perfect: 4 },
@@ -432,6 +451,7 @@ function render() {
       <button class="chip" id="ptsChip" style="display:block;text-align:left;width:100%"><span class="num" id="ptsN">${fmtSigned(dayPoints())}</span> <span style="font-size:11px;color:var(--muted);font-weight:700">сьогодні</span><small>${fmtN(p.xp)} балів · ще ${fmtN(p.next - p.xp)} до ${p.level + 1} рів.</small><div class="xpbar"><i style="width:${lvlPct * 100}%"></i></div></button>
     </div>
   </div>
+  ${deadlinesBlock()}
   ${moneyBar()}
   <nav><div class="tabs" id="tabs"><div class="pill"></div>${TABS.map(([id, n]) => `<button data-tab="${id}">${n}${id === "coll" && unseen().length ? `<span class="dot">${unseen().length}</span>` : ""}</button>`).join("")}</div></nav>
   <section class="tab" id="t-day">${dayTab()}</section>
@@ -491,6 +511,20 @@ function grouped(items) {
 }
 
 const eur = (x, c) => `${Number(x).toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${c || D.money?.currency || "€"}`;
+function deadlinesBlock() {
+  const list = (D.deadlines || []).slice(0, 4);
+  if (!list.length) return "";
+  return `<div class="dls">${list.map((d) => {
+    const n = d.days, cls = n <= 3 ? "hot" : n <= 7 ? "soon" : "";
+    const label = n < 0 ? "прострочено" : n === 0 ? "сьогодні" : plural(n, "день", "дні", "днів");
+    const date = new Date(d.date + "T12:00").toLocaleDateString("uk-UA", { day: "numeric", month: "long" });
+    const g = d.goal;
+    return `<div class="dl ${n < 0 ? "hot" : cls}"><div class="cnt"><b>${n < 0 ? -n : n === 0 ? "!" : n}</b><small>${label}</small></div>
+      <div><div class="t">⚑ ${esc(d.title)}</div><div class="meta">до ${date}${g ? ` · готово ${g.pct}%` : ""}${d.moves ? ` · переносилось ${d.moves}×` : ""}</div>
+      ${g ? `<div class="track"><i style="width:${g.pct}%"></i></div>` : ""}</div></div>`;
+  }).join("")}</div>`;
+}
+
 function moneyBar() {
   const m = D.money;
   if (!m) return `<button class="moneybar" data-go="money"><div><small>бюджет</small><span style="font-weight:700">Не задано — скажи боту суму на місяць</span></div><span style="color:var(--muted)">→</span></button>`;
