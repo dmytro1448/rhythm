@@ -96,6 +96,17 @@ h3 span { color: var(--faint); }
 .task .t { font-weight: 600; transition: color .3s; }
 .task.done .t { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
 .task time { color: var(--muted); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.task .pts { color: var(--faint); font: 700 12px Unbounded; }
+.task.done .pts { color: var(--accent); }
+.task .kd { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--coral);
+  border: 1px solid currentColor; border-radius: 6px; padding: 1px 5px; margin-left: 6px; vertical-align: 2px; }
+.ledger div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-weight: 600; }
+.ledger div:first-child { border-top: 0; }
+.ledger b { font: 700 14px Unbounded; white-space: nowrap; }
+.ledger .plus { color: var(--accent); } .ledger .minus { color: var(--coral); }
+.late { background: color-mix(in srgb, var(--coral) 12%, var(--surface)); border-radius: 16px; padding: 12px 14px; }
+.late div { display: flex; justify-content: space-between; padding: 6px 0; font-weight: 600; }
+.late small { color: var(--coral); font-weight: 700; }
 .task.pending::after { content: ""; position: absolute; left: 6px; top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%; background: var(--amber); }
 .float { position: fixed; pointer-events: none; font: 800 16px Unbounded; color: var(--accent); z-index: 50; animation: floatUp 1s ease-out forwards; }
 @keyframes floatUp { to { transform: translateY(-46px); opacity: 0; } }
@@ -337,11 +348,13 @@ function demoData() {
   const roster = rarities.map((r, i) => ({ id: "a" + i, rarity: r, hint: hints[i], progress: i < 8 ? 1 : [0.6, 0.35, 0.8, 0.2, 0.5, 0.1][i % 6], unlocked: [0, 1, 2, 3, 6, 7, 12].includes(i) ? iso(today) : null, seed: [0, 1, 2, 3, 6, 7, 12].includes(i) ? 1000 + i * 7919 : null }));
   return {
     v: 1, today: { date: iso(today), title: "Сьогодні", tasks: [
-      { id: "t1", title: "Підйом до 9:00", time: "09:00", done: true },
-      { id: "t2", title: "Їжа у FatSecret", time: "", done: true },
-      { id: "t3", title: "Розтяжка", time: "", done: false },
-      { id: "t4", title: "Python-курс · 1 год", time: "", done: false },
-      { id: "t5", title: "Shopify-магазин · 1 год", time: "", done: false } ] },
+      { id: "t1", title: "Підйом до 9:00", time: "09:00", kind: "habit", pts: 10, done: true },
+      { id: "t2", title: "Їжа у FatSecret", time: "", kind: "habit", pts: 10, done: true },
+      { id: "t3", title: "Розтяжка", time: "", kind: "habit", pts: 10, done: false },
+      { id: "t4", title: "Python-курс · 1 год", time: "", kind: "habit", pts: 10, done: false },
+      { id: "t6", title: "Подати документи на проїзний", time: "", kind: "deadline", pts: 40, done: false } ],
+      points: 20, ledger: [{ d: "", p: 10, w: "✓ Підйом до 9:00" }, { d: "", p: 10, w: "✓ Їжа у FatSecret" }] },
+    overdue: [{ title: "Дізнатись про SIM-картку", kind: "task", since: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10) }],
     tomorrow: [{ title: "Тренування", time: "" }, { title: "Англійська · 2 уроки", time: "" }],
     player: { xp: 640, level: 4, floor: 600, next: 1000, streak: 6, best: 9, tasks: 58, reports: 19, voice: 11, perfect: 4 },
     goals: [
@@ -372,7 +385,7 @@ function render() {
     <div class="ring" id="ring">${ringSVG(132, 12, 0, "var(--accent)")}<div class="c"><div class="pct num"><span id="pctN">${st.pct}</span><sup>%</sup></div><div class="sub" id="pctS">${st.n} з ${st.all} ${plural(st.all, "справи", "справ", "справ")}</div></div></div>
     <div class="chips">
       <div class="chip"><div class="ic" style="background:color-mix(in srgb,var(--coral) 18%,transparent)">🔥</div><div><span class="num">${p.streak}</span><small>${plural(p.streak, "день", "дні", "днів")} серія · рекорд ${p.best}</small></div></div>
-      <div class="chip" style="display:block"><span class="num">${fmtN(p.xp)} <span style="font-size:11px;color:var(--muted)">XP</span></span><small>ще ${fmtN(p.next - p.xp)} до ${p.level + 1} рівня</small><div class="xpbar"><i style="width:${lvlPct * 100}%"></i></div></div>
+      <button class="chip" id="ptsChip" style="display:block;text-align:left;width:100%"><span class="num" id="ptsN">${fmtSigned(dayPoints())}</span> <span style="font-size:11px;color:var(--muted);font-weight:700">сьогодні</span><small>${fmtN(p.xp)} балів · ще ${fmtN(p.next - p.xp)} до ${p.level + 1} рів.</small><div class="xpbar"><i style="width:${lvlPct * 100}%"></i></div></button>
     </div>
   </div>
   <nav><div class="tabs" id="tabs"><div class="pill"></div>${TABS.map(([id, n]) => `<button data-tab="${id}">${n}${id === "coll" && unseen().length ? `<span class="dot">${unseen().length}</span>` : ""}</button>`).join("")}</div></nav>
@@ -403,7 +416,8 @@ function dayTab() {
   return `
   ${nu.length ? `<button class="banner" data-go="coll"><div class="egg">${eggSVG(nu[0].rarity, 1)}</div>${nu.length} ${plural(nu.length, "нове яйце", "нові яйця", "нових яєць")} чекає<span>→</span></button>` : ""}
   <h3>Сьогодні <span>${D.today.tasks.filter(taskDone).length}/${ts.length}</span></h3>
-  ${ts.length ? `<div class="tasks">${ts.map((t) => `<button class="task ${taskDone(t) ? "done" : ""} ${t.id in pending ? "pending" : ""}" data-task="${esc(t.id)}"><div class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></svg></div><div class="t">${esc(t.title)}</div><time>${esc(t.time)}</time></button>`).join("")}</div>` : `<div class="empty">Вільний день. Відпочинок — теж частина ритму.</div>`}
+  ${ts.length ? `<div class="tasks">${ts.map((t) => `<button class="task ${taskDone(t) ? "done" : ""} ${t.id in pending ? "pending" : ""}" data-task="${esc(t.id)}"><div class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3L13 4.5"/></svg></div><div class="t">${esc(t.title)}${t.kind === "deadline" ? '<span class="kd">дедлайн</span>' : ""}</div>${t.time ? `<time>${esc(t.time)}</time>` : `<span class="pts">+${t.pts}</span>`}</button>`).join("")}</div>` : `<div class="empty">Вільний день. Відпочинок — теж частина ритму.</div>`}
+  ${D.overdue?.length ? `<h3>Прострочено <span>−бали щодня</span></h3><div class="late">${D.overdue.map((o) => `<div>${esc(o.title)}<small>з ${new Date(o.since + "T12:00").toLocaleDateString("uk-UA", { day: "numeric", month: "short" })}</small></div>`).join("")}<div style="color:var(--muted);font-size:13px">Скажи боту: перенести, виконано чи скасувати</div></div>` : ""}
   ${screenCard()}
   ${next ? `<h3>Наступне яйце</h3><button class="next" data-go="coll"><div class="egg">${eggSVG(next.rarity, next.progress >= 0.66 ? 2 : next.progress >= 0.33 ? 1 : 0)}</div><div><b>${esc(next.hint)}</b><small>${rarName(next.rarity)} · ${Math.round(next.progress * 100)}%</small><div class="bar"><i style="width:${next.progress * 100}%;background:${RARITY_COLOR[next.rarity]}"></i></div></div></button>` : ""}
   ${D.tomorrow?.length ? `<h3>Завтра</h3><div class="mini">${D.tomorrow.map((t) => `<div><time>${esc(t.time)}</time>${esc(t.title)}</div>`).join("")}</div>` : ""}`;
@@ -429,6 +443,12 @@ function goalsTab() {
     <div class="seg">${Array.from({ length: segs }, (_, i) => `<i class="${i < f ? "f" : ""}" style="transition-delay:${i * 30}ms"></i>`).join("")}</div></div>`; }).join("")}`;
 }
 const fmtN = (n) => Number(n).toLocaleString("uk-UA");
+const fmtSigned = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
+function dayPoints() {
+  let p = D.today.points || 0;
+  D.today.tasks.forEach((t) => { if (t.id in pending) p += pending[t.id] ? t.pts : -t.pts; });
+  return p;
+}
 const rarName = (r) => RARITY_NAME[r][0].toUpperCase() + RARITY_NAME[r].slice(1);
 
 function collTab() {
@@ -494,6 +514,7 @@ function bind() {
   document.querySelectorAll("[data-show]").forEach((b) => b.onclick = () => showCreature(D.roster.find((a) => a.id === b.dataset.show)));
   document.querySelectorAll("[data-lock]").forEach((b) => b.onclick = () => { haptic("i", "light"); const a = D.roster.find((x) => x.id === b.dataset.lock); toast(`${a.hint} · ${Math.round(a.progress * 100)}%`); });
   document.querySelectorAll("[data-day]").forEach((b) => b.onclick = () => showDay(D.heat[+b.dataset.day]));
+  $("#ptsChip").onclick = showLedger;
 }
 
 function setTab(id, instant) {
@@ -515,13 +536,14 @@ function toggleTask(id, el, ev) {
   el.classList.toggle("done", v);
   el.classList.toggle("pending", id in pending);
   haptic("i", v ? "medium" : "light");
-  if (v) floatText("+10", ev.clientX, ev.clientY);
+  floatText((v ? "+" : "−") + t.pts, ev.clientX, ev.clientY);
+  $("#ptsN").textContent = fmtSigned(dayPoints());
   const st = todayStats();
   $("#pctN").textContent = st.pct;
   $("#pctS").textContent = `${st.n} з ${st.all} ${plural(st.all, "справи", "справ", "справ")}`;
   $("#t-day h3 span").textContent = `${st.n}/${st.all}`;
   setRing(st.pct);
-  if (st.pct === 100 && before < 100) { haptic("n", "success"); confetti(140); toast("Ідеальний день ★ +50 XP"); }
+  if (st.pct === 100 && before < 100) { haptic("n", "success"); confetti(140); toast("Ідеальний день ★ +30 о 04:00"); }
   updateSave();
 }
 
@@ -573,11 +595,19 @@ function showCreature(a) {
     <div class="lore"><div><small>Суперсила</small>${esc(c.lore.power)}</div><div><small>Любить</small>${esc(c.lore.loves)}</div><div><small>Боїться</small>${esc(c.lore.fears)}</div></div>`, RARITY_COLOR[a.rarity]);
 }
 
+function showLedger() {
+  haptic("s");
+  const L = D.today.ledger || [];
+  openSheet(`<h2>${fmtSigned(dayPoints())} сьогодні</h2><div class="muted">${fmtN(D.player.xp)} балів усього · рівень ${D.player.level}</div>
+    <div class="ledger" style="margin-top:12px">${L.length ? L.slice().reverse().map((x) => `<div><span>${esc(x.w)}</span><b class="${x.p > 0 ? "plus" : "minus"}">${fmtSigned(x.p)}</b></div>`).join("") : `<div class="muted">Ще нічого. Відмічай пункти — бали зʼявляться тут.</div>`}</div>
+    <div class="lore"><div><small>Як рахуються</small>звичка +10 · задача +15 · дедлайн +40 · пропуск звички −5 · перенесення −5×№ (дедлайн −10×№) · прострочення −5/−15 щодня · ідеальний день +30 · звіт +10</div></div>`);
+}
+
 function showDay(h) {
   haptic("s");
   const d = new Date(h.d + "T12:00");
   openSheet(`<h2>${d.toLocaleDateString("uk-UA", { weekday: "long", day: "numeric", month: "long" })}</h2>
-    <div class="muted">${h.planned ? `${h.done} з ${h.planned} справ · ${h.pct}%` : "Справ не було"}${h.energy ? ` · енергія ${h.energy}/5` : ""}${h.report ? " · звіт ✓" : ""}${h.screen != null ? ` · 📱 ${hm(h.screen)}` : ""}</div>
+    <div class="muted">${h.planned ? `${h.done} з ${h.planned} справ · ${h.pct}%` : "Справ не було"}${h.energy ? ` · енергія ${h.energy}/5` : ""}${h.report ? " · звіт ✓" : ""}${h.screen != null ? ` · 📱 ${hm(h.screen)}` : ""}${h.points ? ` · ${fmtSigned(h.points)} балів` : ""}</div>
     ${h.planned ? `<div class="bar" style="margin-top:14px"><i style="width:${h.pct}%;background:var(--accent)"></i></div>` : ""}
     ${(h.notes || []).map((n) => `<div class="note">${esc(n)}</div>`).join("") || `<div class="note" style="color:var(--muted)">Нотаток немає</div>`}`);
 }
