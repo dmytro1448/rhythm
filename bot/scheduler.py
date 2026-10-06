@@ -13,6 +13,8 @@ def run_jobs(state, now: datetime):
     today, tomorrow = now.date(), now.date() + timedelta(days=1)
     events = gcal.list_events(today - timedelta(days=14), today + timedelta(days=14))
 
+    deadlines = [e for e in gcal.list_deadlines(today - timedelta(days=30)) if e["id"] not in state["done"]]
+
     _reminders(state, now, events)
     game.update_days(state, events, now)
     late = agent.overdue(state, events, now)
@@ -32,13 +34,13 @@ def run_jobs(state, now: datetime):
     todays = fmt.for_day(events, today)
     # GitHub cron неточний: «не раніше часу X, ще не надсилали сьогодні, і не надто пізно»
     if config.MORNING_TIME <= t < time(13) and _once(state, "morning", today):
-        morning(state, now, todays, late)
+        morning(state, now, todays, late, deadlines)
     if config.MIDDAY_TIME <= t < time(19) and _once(state, "midday", today):
         midday(state, now, todays)
     if t >= config.EVENING_TIME and _once(state, "evening", today):
         evening(state, now, todays, fmt.for_day(events, tomorrow))
 
-    progress.publish(state, events, now, late)
+    progress.publish(state, events, now, late, deadlines)
 
 
 def _once(state, kind, day):
@@ -75,9 +77,19 @@ def action_buttons(state, events, day):
     return rows
 
 
-def morning(state, now, events, late):
+def deadline_line(deadlines, today):
+    parts = []
+    for e in sorted(deadlines, key=fmt.ev_day)[:4]:
+        n = (fmt.ev_day(e) - today).days
+        when = "сьогодні" if n == 0 else f"{n} дн" if n > 0 else f"прострочено {-n} дн"
+        parts.append(f"{fmt.escape(fmt.deadline_title(e['title']))} — {when}")
+    return "⚑ " + " · ".join(parts) if parts else ""
+
+
+def morning(state, now, events, late, deadlines=()):
     today = now.date()
-    text = f"<b>{fmt.day_title(today)}</b>\n{fmt.day_block(events, state['done'])}"
+    dl = deadline_line(deadlines, today)
+    text = (f"{dl}\n\n" if dl else "") + f"<b>{fmt.day_title(today)}</b>\n{fmt.day_block(events, state['done'])}"
     if events:
         text += f"\n\n{fmt.plural(len(events), 'пункт', 'пункти', 'пунктів')} · до +{game.potential(events)} балів"
     shot = state["screen"].get((today - timedelta(days=1)).isoformat())

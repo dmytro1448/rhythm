@@ -111,5 +111,13 @@ def short_date(d: date):
     return f"{d.day} {MONTHS[d.month - 1][:3]}"
 
 
+def deadline_title(title: str) -> str:
+    t = title
+    for p in ("ДЕДЛАЙН · ", "ДЕДЛАЙН: ", "ДЕДЛАЙН "):
+        if t.upper().startswith(p.upper()):
+            t = t[len(p):]
+    return t[:1].upper() + t[1:]
+
+
 def signed(n: int) -> str:
     return f"+{n}" if n > 0 else f"−{abs(n)}" if n < 0 else "0"

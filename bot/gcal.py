@@ -83,6 +83,11 @@ def list_events(first: date, last: date, query=None):
     return [_parse(e) for e in items if e.get("status") != "cancelled"]
 
 
+def list_deadlines(first: date, days=120):
+    """Обовʼязкові справи з дедлайном (окремий легкий запит, далеко наперед)."""
+    return list_events(first, first + timedelta(days=days), query={"privateExtendedProperty": "kind=deadline"})
+
+
 def get_event(event_id):
     return _parse(_events().get(calendarId=config.CALENDAR_ID, eventId=event_id).execute())
 

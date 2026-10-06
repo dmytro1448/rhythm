@@ -19,7 +19,7 @@ def _key():
     return base64.urlsafe_b64decode(k + "=" * (-len(k) % 4))
 
 
-def snapshot(state, events, now: datetime, late=()):
+def snapshot(state, events, now: datetime, late=(), deadlines=()):
     today = now.date()
     xp = state["stats"]["xp"]
     lvl = game.level(xp)
@@ -51,6 +51,7 @@ def snapshot(state, events, now: datetime, late=()):
             "points": game.day_points(state, today),
             "ledger": [x for x in state["ledger"] if x["d"] == today.isoformat()][-30:],
         },
+        "deadlines": _deadlines(state, deadlines, today),
         "overdue": [{"title": e["title"], "kind": e["kind"], "since": fmt.ev_day(e).isoformat()} for e in late],
         "groups": [[k, fmt.GROUP_LABEL[k]] for k in fmt.GROUP_KEYS],
     "tomorrow": [{"title": e["title"], "time": "" if e["all_day"] else fmt.when(e), "group": e.get("group", "errands"), "kind": e["kind"]}
@@ -65,6 +66,23 @@ def snapshot(state, events, now: datetime, late=()):
         "roster": game.roster_view(state, today),
         "money": _money(state, today),
     }
+
+
+def _deadlines(state, deadlines, today):
+    def goal_for(title):
+        words = {w[:5] for w in title.lower().replace("-", " ").split() if len(w) >= 5}
+        for g in state["goals"]:
+            if words & {w[:5] for w in g["title"].lower().replace("-", " ").split() if len(w) >= 5}:
+                return g
+        return None
+
+    out = []
+    for e in sorted(deadlines, key=fmt.ev_day):
+        g = goal_for(fmt.deadline_title(e["title"]))
+        out.append({"title": fmt.deadline_title(e["title"]), "date": fmt.ev_day(e).isoformat(),
+                    "days": (fmt.ev_day(e) - today).days, "moves": e.get("moves", 0),
+                    "goal": {"pct": game.goal_pct(g), "progress": g["progress"], "target": g["target"], "unit": g["unit"]} if g else None})
+    return out
 
 
 def _money(state, today):
@@ -88,10 +106,10 @@ def _money(state, today):
     }
 
 
-def publish(state, events, now, late=()) -> bool:
+def publish(state, events, now, late=(), deadlines=()) -> bool:
     if not config.APP_KEY:
         return False
-    data = json.dumps(snapshot(state, events, now, late), ensure_ascii=False, sort_keys=True)
+    data = json.dumps(snapshot(state, events, now, late, deadlines), ensure_ascii=False, sort_keys=True)
     digest = hashlib.sha256(data.encode()).hexdigest()
     if state.get("progress_hash") == digest and PATH.exists():
         return False
