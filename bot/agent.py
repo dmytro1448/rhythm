@@ -81,7 +81,9 @@ TOOLS = [
         "target": {"type": "integer", "description": "Скільки одиниць треба досягти"},
         "unit": {"type": "string", "description": "Одиниця: разів, сторінок, км, грн…"},
         "emoji": {"type": "string", "description": "Один емодзі-символ цілі"},
-        "match": {"type": "string", "description": "Слова через кому: справи календаря з такою назвою автоматично додають +1"},
+        "match": {"type": "string", "description": "Слова через кому: справи календаря з такою назвою автоматично додають прогрес"},
+        "per": {"type": "number", "description": "Скільки одиниць додає одна виконана справа з match (за замовчуванням 1)"},
+        "screen_max": {"type": "integer", "description": "Для цілей екранного часу: ліміт хвилин на день; прогрес = дні в межах ліміту"},
     }, ["title", "target", "unit"]),
     _fn("update_goal", "Оновити прогрес цілі (add — додати, set — встановити) або змінити її.", {
         "goal_id": {"type": "string"}, "add": {"type": "number"}, "set": {"type": "number"},
@@ -256,6 +258,11 @@ def _exec(name, a, state, now):
             gid += "x"
         g = {"id": gid, "title": a["title"], "target": int(a["target"]), "unit": a["unit"],
              "emoji": a.get("emoji", ""), "match": a.get("match", ""), "progress": 0}
+        if a.get("per"):
+            g["per"] = a["per"]
+        if a.get("screen_max"):
+            g.update(screen_max=int(a["screen_max"]), **{"from": today.isoformat()})
+            game.refresh_goals(state)
         state["goals"].append(g)
         return g
     if name in ("update_goal", "delete_goal"):

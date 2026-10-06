@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from bot import gcal  # noqa: E402
+from bot import game, gcal, store  # noqa: E402
 
 SOURCE = "plan"
 DAYS = {"mon": "MO", "tue": "TU", "wed": "WE", "thu": "TH", "fri": "FR", "sat": "SA", "sun": "SU"}
@@ -41,13 +41,33 @@ def load(path):
     for t in plan.get("tasks", []):
         events.append(dict(title=t["title"], day=t["date"], start_time=t.get("time"),
                            duration_min=t.get("duration"), description=t.get("note", ""),
-                           remind_before_min=t.get("remind")))
-    return start, end, events
+                           remind_before_min=t.get("remind"), deadline=bool(t.get("deadline"))))
+    return start, end, events, plan.get("goals", [])
+
+
+def seed_goals(goals, start):
+    state = store.load()
+    state["goals"] = []
+    for i, g in enumerate(goals, 1):
+        item = {"id": f"g{i}", "title": g["title"], "target": g["target"], "unit": g["unit"],
+                "emoji": g.get("emoji", ""), "match": g.get("match", ""), "progress": 0}
+        for k in ("per", "screen_max"):
+            if g.get(k):
+                item[k] = g[k]
+        if g.get("screen_max"):
+            item["from"] = start.isoformat()
+        state["goals"].append(item)
+    game.refresh_goals(state)
+    store.save(state)
+    print(f"цілей у стані: {len(state['goals'])}")
 
 
 def main():
     path = Path(__file__).resolve().parent.parent / "plan.yaml"
-    start, end, events = load(path)
+    start, end, events, goals = load(path)
+    if "--goals" in sys.argv:
+        seed_goals(goals, start)
+        return
 
     if "--clear" in sys.argv:
         old = gcal.list_events(start - timedelta(days=7), end + timedelta(days=7),

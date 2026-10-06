@@ -115,7 +115,7 @@ def on_done(state, ev, done: bool, now: datetime):
     low = t.lower()
     for g in state["goals"]:
         if g.get("match") and any(m.strip() and m.strip().lower() in low for m in g["match"].split(",")):
-            g["progress"] = max(0, g["progress"] + sign)
+            g["progress"] = max(0, g["progress"] + sign * g.get("per", 1))
 
 
 def on_move(state, ev, today: date) -> tuple:
@@ -177,6 +177,7 @@ def update_days(state, events, now: datetime):
         )
         state["days"][d.isoformat()] = rec
 
+    refresh_goals(state)
     last_open = cutoff(now)
     for key in sorted(state["days"]):
         rec = state["days"][key]
@@ -227,6 +228,14 @@ def current_streak(state, today: date):
 
 
 # ---- цілі
+
+def refresh_goals(state):
+    """Цілі з екранного часу: прогрес = днів із часом ≤ ліміту, починаючи з дати старту цілі."""
+    for g in state["goals"]:
+        if g.get("screen_max"):
+            g["progress"] = sum(1 for d, v in state["screen"].items()
+                                if d >= g.get("from", "") and v["min"] <= g["screen_max"])
+
 
 def goal_pct(g):
     return min(100, round(100 * g["progress"] / g["target"])) if g["target"] else 0
