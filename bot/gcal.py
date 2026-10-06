@@ -35,10 +35,20 @@ def _parse(ev):
     else:
         start = datetime.fromisoformat(s["dateTime"]).astimezone(config.TZ)
         end = datetime.fromisoformat(e["dateTime"]).astimezone(config.TZ)
-    remind = ev.get("extendedProperties", {}).get("private", {}).get("remind", "")
+    props = ev.get("extendedProperties", {}).get("private", {})
+    remind = props.get("remind", "")
+    title = ev.get("summary") or "(без назви)"
+    if "recurringEventId" in ev or ev.get("recurrence"):
+        kind = "habit"
+    elif props.get("kind") == "deadline" or "ДЕДЛАЙН" in title.upper():
+        kind = "deadline"
+    else:
+        kind = "task"
     return {
+        "kind": kind,
+        "moves": int(props.get("moves", "0") or 0),
         "id": ev["id"],
-        "title": ev.get("summary") or "(без назви)",
+        "title": title,
         "start": start,
         "end": end,
         "all_day": all_day,
@@ -98,7 +108,7 @@ def rrule_until(last: date):
 
 
 def create_event(title, day: date, start_time=None, end_time=None, duration_min=None,
-                 description="", recurrence=None, remind_before_min=None, source=None):
+                 description="", recurrence=None, remind_before_min=None, source=None, deadline=False):
     start, end = _times(day, start_time, end_time, duration_min)
     body = {"summary": title, "start": start, "end": end}
     if description:
@@ -110,6 +120,8 @@ def create_event(title, day: date, start_time=None, end_time=None, duration_min=
         props["remind"] = str(int(remind_before_min))
     if source:
         props["source"] = source
+    if deadline:
+        props["kind"] = "deadline"
     if props:
         body["extendedProperties"] = {"private": props}
     ev = _events().insert(calendarId=config.CALENDAR_ID, body=body).execute()
@@ -117,16 +129,22 @@ def create_event(title, day: date, start_time=None, end_time=None, duration_min=
 
 
 def update_event(event_id, title=None, day=None, start_time=None, end_time=None,
-                 description=None, remind_before_min=None):
+                 description=None, remind_before_min=None, props=None):
+    raw = _events().get(calendarId=config.CALENDAR_ID, eventId=event_id).execute()
+    cur = _parse(raw)
     body = {}
     if title is not None:
         body["summary"] = title
     if description is not None:
         body["description"] = description
+    private = dict(raw.get("extendedProperties", {}).get("private", {}))
     if remind_before_min is not None:
-        body["extendedProperties"] = {"private": {"remind": str(int(remind_before_min))}}
+        private["remind"] = str(int(remind_before_min))
+    if props:
+        private.update({k: str(v) for k, v in props.items()})
+    if private != raw.get("extendedProperties", {}).get("private", {}):
+        body["extendedProperties"] = {"private": private}
     if day or start_time or end_time:
-        cur = get_event(event_id)
         if cur["all_day"]:
             new_day = day or cur["start"]
             if start_time:
@@ -159,7 +177,7 @@ def set_done(event_id, done: bool):
             calendarId=config.CALENDAR_ID, eventId=event_id,
             body={"colorId": DONE_COLOR if done else None},
         ).execute()
-        return ev.get("summary", "")
+        return _parse(ev)
     except Exception as e:
         print("set_done failed:", type(e).__name__)
-        return ""
+        return None

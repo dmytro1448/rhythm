@@ -69,5 +69,8 @@ def _prune(s):
     s["days"] = {k: v for k, v in s["days"].items() if k >= long}
     s["history"] = s["history"][-20:]
     s["log"] = s["log"][-300:]
+    s["done_pts"] = {k: v for k, v in s["done_pts"].items() if k in s["done"]}
+    s["charged"] = {k: v for k, v in s["charged"].items() if v >= short}
+    s["ledger"] = [x for x in s["ledger"] if x["d"] >= long]
     s["screen"] = {k: v for k, v in s["screen"].items() if k >= long}
     s["report_days"] = {k: v for k, v in s["report_days"].items() if k >= long}

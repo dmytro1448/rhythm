@@ -19,7 +19,7 @@ def _key():
     return base64.urlsafe_b64decode(k + "=" * (-len(k) % 4))
 
 
-def snapshot(state, events, now: datetime):
+def snapshot(state, events, now: datetime, late=()):
     today = now.date()
     xp = state["stats"]["xp"]
     lvl = game.level(xp)
@@ -36,6 +36,7 @@ def snapshot(state, events, now: datetime):
             "planned": rec["planned"] if rec else 0, "done": rec["done"] if rec else 0,
             "energy": round(sum(energy) / len(energy), 1) if energy else None,
             "notes": [x["text"] for x in notes][-3:],
+            "points": game.day_points(state, d),
             "report": d.isoformat() in state["report_days"],
             "screen": state["screen"].get(d.isoformat(), {}).get("min"),
         })
@@ -45,8 +46,12 @@ def snapshot(state, events, now: datetime):
         "today": {
             "date": today.isoformat(), "title": fmt.day_title(today),
             "tasks": [{"id": e["id"], "title": e["title"], "time": "" if e["all_day"] else fmt.when(e),
+                       "kind": e["kind"], "pts": game.DONE[e["kind"]],
                        "done": e["id"] in state["done"]} for e in tasks],
+            "points": game.day_points(state, today),
+            "ledger": [x for x in state["ledger"] if x["d"] == today.isoformat()][-30:],
         },
+        "overdue": [{"title": e["title"], "kind": e["kind"], "since": fmt.ev_day(e).isoformat()} for e in late],
         "tomorrow": [{"title": e["title"], "time": "" if e["all_day"] else fmt.when(e)}
                      for e in fmt.for_day(events, today + timedelta(days=1))],
         "player": {
@@ -60,10 +65,10 @@ def snapshot(state, events, now: datetime):
     }
 
 
-def publish(state, events, now) -> bool:
+def publish(state, events, now, late=()) -> bool:
     if not config.APP_KEY:
         return False
-    data = json.dumps(snapshot(state, events, now), ensure_ascii=False, sort_keys=True)
+    data = json.dumps(snapshot(state, events, now, late), ensure_ascii=False, sort_keys=True)
     digest = hashlib.sha256(data.encode()).hexdigest()
     if state.get("progress_hash") == digest and PATH.exists():
         return False

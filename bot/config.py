@@ -1,4 +1,5 @@
 import os
+from datetime import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -31,9 +32,11 @@ CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID") or "primary"
 # Ключ шифрування стану (Fernet). Без нього стан пишеться відкритим у data/state.json
 STATE_KEY = os.getenv("STATE_KEY", "")
 
-TZ = ZoneInfo(os.getenv("TIMEZONE") or "Europe/Kyiv")
-MORNING_HOUR = _int("MORNING_HOUR", 8)
-EVENING_HOUR = _int("EVENING_HOUR", 20)
+TZ = ZoneInfo(os.getenv("TIMEZONE") or "Europe/Riga")
+# Щоденні повідомлення: ранок — план, день — що лишилось, вечір — підсумок, звіт, завтра
+MORNING_TIME = time.fromisoformat(os.getenv("MORNING_TIME") or "09:00")
+MIDDAY_TIME = time.fromisoformat(os.getenv("MIDDAY_TIME") or "15:00")
+EVENING_TIME = time.fromisoformat(os.getenv("EVENING_TIME") or "21:30")
 REMIND_BEFORE_MIN = _int("REMIND_BEFORE_MIN", 60)
 
 DEBUG = bool(os.getenv("DEBUG"))

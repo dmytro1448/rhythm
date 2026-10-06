@@ -1,9 +1,9 @@
-"""Ранковий дайджест, вечірній підсумок, нагадування завчасно."""
+"""Щоденні повідомлення (9:00 план · 15:00 що лишилось · 21:30 підсумок), нагадування, прострочення."""
 
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
-from . import config, fmt, game, gcal, progress
+from . import agent, config, fmt, game, gcal, progress
 from . import telegram as tg
 
 RARITY = {"common": "звичайна", "rare": "рідкісна", "epic": "епічна", "legendary": "легендарна"}
@@ -11,22 +11,31 @@ RARITY = {"common": "звичайна", "rare": "рідкісна", "epic": "е�
 
 def run_jobs(state, now: datetime):
     today, tomorrow = now.date(), now.date() + timedelta(days=1)
-    events = gcal.list_events(today - timedelta(days=1), today + timedelta(days=14))
+    events = gcal.list_events(today - timedelta(days=14), today + timedelta(days=14))
 
     _reminders(state, now, events)
     game.update_days(state, events, now)
+    late = agent.overdue(state, events, now)
+    for e in late:
+        game.on_overdue(state, e, today)
+
     new = game.check_unlocks(state, today)
     if len(new) == 1:
-        tg.send(f"🥚 <b>Нове яйце!</b>\nВсередині {RARITY[new[0]['rarity']]} істота. Відкрий ◐ Прогрес, щоб вилупити.", html=True)
+        tg.send(f"🥚 Нове яйце · {RARITY[new[0]['rarity']]} істота. Відкрий ◐ Прогрес.")
     elif new:
-        tg.send(f"🥚 <b>Нових яєць: {len(new)}</b>\nВідкрий ◐ Прогрес, щоб вилупити.", html=True)
-    progress.publish(state, events, now)
+        tg.send(f"🥚 Нових яєць: {len(new)}. Відкрий ◐ Прогрес.")
 
-    # GitHub cron неточний, тому «не раніше години X і ще не надсилали сьогодні»
-    if config.MORNING_HOUR <= now.hour < config.MORNING_HOUR + 4 and _once(state, "morning", today):
-        morning(state, today, fmt.for_day(events, today))
-    if now.hour >= config.EVENING_HOUR and _once(state, "evening", today):
-        evening(state, today, fmt.for_day(events, today), fmt.for_day(events, tomorrow))
+    t = now.time()
+    todays = fmt.for_day(events, today)
+    # GitHub cron неточний: «не раніше часу X, ще не надсилали сьогодні, і не надто пізно»
+    if config.MORNING_TIME <= t < time(13) and _once(state, "morning", today):
+        morning(state, now, todays, late)
+    if config.MIDDAY_TIME <= t < time(19) and _once(state, "midday", today):
+        midday(state, now, todays)
+    if t >= config.EVENING_TIME and _once(state, "evening", today):
+        evening(state, now, todays, fmt.for_day(events, tomorrow))
+
+    progress.publish(state, events, now, late)
 
 
 def _once(state, kind, day):
@@ -37,42 +46,74 @@ def _once(state, kind, day):
     return True
 
 
-def done_buttons(state, events, day):
+def _key(state, e, day):
+    key = hashlib.md5(e["id"].encode()).hexdigest()[:10]
+    state["btn"][key] = {"id": e["id"], "t": e["title"][:36], "k": e["kind"], "d": day.isoformat()}
+    return key
+
+
+def toggle_buttons(state, events, day):
     rows = []
-    for e in events[:10]:
-        key = hashlib.md5(e["id"].encode()).hexdigest()[:10]
-        title = e["title"][:40]
-        state["btn"][key] = {"id": e["id"], "t": title, "d": day.isoformat()}
+    for e in events[:14]:
         mark = "✓" if e["id"] in state["done"] else "○"
-        rows.append([(f"{mark} {title}", f"t:{key}")])
+        rows.append([(f"{mark} {e['title'][:36]}", f"t:{_key(state, e, day)}")])
     return rows
 
 
-def morning(state, today, events):
-    text = f"<b>{fmt.day_title(today)}</b>\n\n{fmt.day_block(events)}"
+def action_buttons(state, events, day):
+    """Для разових задач/дедлайнів: виконано / завтра (штраф) / скасувати (штраф)."""
+    rows = []
+    for e in events[:8]:
+        k = _key(state, e, day)
+        move = game.MOVE[e["kind"]] * (e.get("moves", 0) + 1)
+        rows.append([(f"✓ {e['title'][:22]}", f"a:{k}:d"), (f"↷ завтра {fmt.signed(move)}", f"a:{k}:m"),
+                     (f"✕ {fmt.signed(game.CANCEL[e['kind']])}", f"a:{k}:x")])
+    return rows
+
+
+def morning(state, now, events, late):
+    today = now.date()
+    text = f"<b>{fmt.day_title(today)}</b>\n{fmt.day_block(events, state['done'])}"
     if events:
-        text += f"\n\n{fmt.plural(len(events), 'пункт', 'пункти', 'пунктів')} · відмічай кнопками або звітом"
-    shot = state.get("screen", {}).get((today - timedelta(days=1)).isoformat())
+        text += f"\n\n{fmt.plural(len(events), 'пункт', 'пункти', 'пунктів')} · до +{game.potential(events)} балів"
+    shot = state["screen"].get((today - timedelta(days=1)).isoformat())
     if shot:
-        text += f"\nЕкранний час учора: {fmt.hm(shot['min'])}"
-    tg.send(text, buttons=done_buttons(state, events, today), html=True)
+        text += f"\n📱 вчора {fmt.hm(shot['min'])}"
+    tg.send(text, buttons=toggle_buttons(state, events, today), html=True)
+    if late:
+        tg.send("<b>⏰ Прострочено — що робимо?</b>\n" + "\n".join(
+            f"· {fmt.escape(e['title'])} · з {fmt.short_date(fmt.ev_day(e))}" for e in late),
+            buttons=action_buttons(state, late, today), html=True)
 
 
-def evening(state, today, events, tomorrow_events):
-    done = state["done"]
-    n_done = sum(e["id"] in done for e in events)
+def midday(state, now, events):
+    left = [e for e in events if e["id"] not in state["done"]]
+    if not left:
+        return
+    today = now.date()
+    tg.send(f"<b>Залишилось {len(left)} з {len(events)}</b> · сьогодні {fmt.signed(game.day_points(state, today))}\n"
+            f"{fmt.day_block(left, state['done'])}",
+            buttons=toggle_buttons(state, left, today), html=True)
 
-    parts = []
-    if events:
-        parts.append(f"<b>Сьогодні · {n_done}/{len(events)}</b>\n{fmt.day_block(events, done)}")
-    tomorrow = today + timedelta(days=1)
-    parts.append(f"<b>Завтра · {fmt.day_title(tomorrow).lower()}</b>\n{fmt.day_block(tomorrow_events)}")
+
+def evening(state, now, events, tomorrow_events):
+    today, done = now.date(), state["done"]
+    n = sum(e["id"] in done for e in events)
+    open_tasks = [e for e in events if e["kind"] != "habit" and e["id"] not in done]
+    open_habits = [e for e in events if e["kind"] == "habit" and e["id"] not in done]
+
+    parts = [f"<b>Підсумок · {n}/{len(events)} · {fmt.signed(game.day_points(state, today))} балів</b>\n"
+             f"{fmt.day_block(events, done)}"]
+    if open_habits:
+        parts.append(f"Звички без ✓ до 04:00 = −5 кожна ({len(open_habits)} шт).")
+    parts.append(f"<b>Завтра · {fmt.day_title(today + timedelta(days=1)).lower()}</b>\n"
+                 f"{fmt.day_block(tomorrow_events)}")
     if today.weekday() == 6:
         parts.append(week_stats(state, today))
-    parts.append("Як пройшов день? Звіт — текстом або голосом.")
-
-    open_items = [e for e in events if e["id"] not in done]
-    tg.send("\n\n".join(parts), buttons=done_buttons(state, open_items, today), html=True)
+    parts.append("Звіт — голосом або текстом.")
+    tg.send("\n\n".join(parts), buttons=toggle_buttons(state, open_habits, today), html=True)
+    if open_tasks:
+        tg.send("<b>Не виконано — що робимо?</b>", buttons=action_buttons(state, open_tasks, today), html=True)
 
 
 def week_stats(state, today, days=7):
@@ -82,9 +123,10 @@ def week_stats(state, today, days=7):
         if d:
             planned += d["planned"]
             done += d["done"]
+    pts = sum(game.day_points(state, today - timedelta(days=i)) for i in range(days))
     if not planned:
-        return "Статистики ще немає."
-    return f"<b>{days} днів</b> · {done}/{planned} · {round(100 * done / planned)}%"
+        return f"<b>{days} днів</b> · статистики ще немає"
+    return f"<b>{days} днів</b> · {done}/{planned} · {round(100 * done / planned)}% · {fmt.signed(pts)} балів"
 
 
 def _reminders(state, now, events):
@@ -99,14 +141,14 @@ def _reminders(state, now, events):
         if lead > 0 and 0 < mins <= lead:
             state["reminded"][e["id"]] = now.date().isoformat()
             left = f"{int(mins)} хв" if mins < 90 else f"{mins / 60:.0f} год"
-            tg.send(f"Через {left}\n{fmt.line(e)}", html=True)
+            tg.send(f"Через {left} · {fmt.escape(e['title'])}", html=True)
 
 
 def _deadline(state, now, e):
     """Дедлайни (весь день) з remind ≥ 1440 хв — нагадування за N днів, зранку."""
     lead_days = (e["remind"] or 0) // 1440
     days_left = (e["start"] - now.date()).days
-    if lead_days and 0 < days_left <= lead_days and now.hour >= config.MORNING_HOUR:
+    if lead_days and 0 < days_left <= lead_days and now.time() >= config.MORNING_TIME:
         state["reminded"][e["id"]] = now.date().isoformat()
-        left = "завтра" if days_left == 1 else f"через {days_left} дн"
-        tg.send(f"Дедлайн {left} · {fmt.day_title(e['start']).lower()}\n{fmt.line(e)}", html=True)
+        left = "завтра" if days_left == 1 else f"через {fmt.plural(days_left, 'день', 'дні', 'днів')}"
+        tg.send(f"⏳ Дедлайн {left} · {fmt.escape(e['title'])}", html=True)

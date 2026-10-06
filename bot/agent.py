@@ -52,7 +52,7 @@ _TIME = {"type": "string", "description": "HH:MM, 24 год"}
 TOOLS = [
     _fn("get_events", "Справи з календаря за період (включно).",
         {"from_date": _DATE, "to_date": _DATE}, ["from_date", "to_date"]),
-    _fn("create_event", "Створити справу в календарі. Без start_time — справа на весь день (дедлайн).", {
+    _fn("create_event", "Створити справу. Без start_time — пункт дня. deadline=true — обовʼязкова задача з дедлайном (+40 балів, дорогі перенесення).", {
         "title": {"type": "string"},
         "date": _DATE,
         "start_time": _TIME,
@@ -60,14 +60,15 @@ TOOLS = [
         "duration_min": {"type": "integer"},
         "description": {"type": "string"},
         "recurrence": {"type": "string", "description": "RRULE для регулярних справ, напр. FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=12"},
-        "remind_before_min": {"type": "integer", "description": "За скільки хвилин нагадати (0 — не нагадувати, 1440 — за добу)"},
+        "remind_before_min": {"type": "integer", "description": "За скільки хвилин нагадати (0 — не нагадувати, 1440 — за добу, 10080 — за тиждень)"},
+        "deadline": {"type": "boolean"},
     }, ["title", "date"]),
-    _fn("update_event", "Змінити/перенести справу. Вказуй лише поля, що змінюються.", {
+    _fn("update_event", "Змінити/перенести справу. Перенесення на пізнішу дату коштує балів; звички переносити не можна. Вказуй лише поля, що змінюються.", {
         "event_id": {"type": "string"}, "title": {"type": "string"}, "date": _DATE,
         "start_time": _TIME, "end_time": _TIME, "description": {"type": "string"},
         "remind_before_min": {"type": "integer"},
     }, ["event_id"]),
-    _fn("delete_event", "Видалити справу. Лише на явне прохання користувача. series=true — прибрати всю регулярну серію (напр. «знайшов роботу — прибери пошук роботи»).",
+    _fn("delete_event", "Скасувати справу (штраф: задача −5, дедлайн −25). Лише на явне прохання. series=true — прибрати всю регулярну серію без штрафу (напр. «знайшов роботу — прибери пошук роботи»).",
         {"event_id": {"type": "string"}, "series": {"type": "boolean"}}, ["event_id"]),
     _fn("log_screen_time", "Записати екранний час телефону за день.",
         {"minutes": {"type": "integer"}, "date": _DATE}, ["minutes", "date"]),
@@ -93,23 +94,38 @@ TOOLS = [
     }, ["text"]),
 ]
 
-SYSTEM = """Ти — особистий асистент ритму життя в Telegram. Мова — українська.
-Стиль — мінімалізм: 1–5 коротких рядків, без води, без мотиваційних фраз, емодзі лише ✓ та ·.
+SYSTEM = """Ти — асистент ритму життя в Telegram. Мова — українська.
+Відповідай максимально конкретно й коротко: 1–3 рядки. Без вступів, привітань, порад і мотивації, якщо не просять. Без markdown.
+Дати пиши як «8 жов», не ISO. Формати відповідей (бали — лише ті, що реально нараховані інструментами):
+виконано: «✓ Розтяжка, Прес · +20»
+перенесено: «↷ Звіт → 8 жов · −5»
+додано: «+ Подати документи · 15 жов · дедлайн» (без балів)
+скасовано: «✕ Звіт · −5»
+питання: «<повна назва задачі>: перенести на 8 жов (−5) чи скасувати (−5)?»
+Не дописуй загальну суму балів у відповідь на звіт — лише бали за конкретні дії.
+Не вигадуй бонусів: ідеальний день, серія і штрафи за пропуски нараховуються автоматично о 04:00 — не згадуй їх у відповіді на звіт.
+звичку просять перенести: «Звички не переносяться. Сьогодні ще можна зробити — інакше −5 о 04:00.»
 
 Зараз: {now}.
+Бали сьогодні: {points} (на питання про бали — бери лише це число й журнал нижче, не рахуй сам).
+Журнал балів сьогодні:
+{ledger}
 
-Джерело правди про справи — Google Calendar. Порядок справ бери саме звідти, не вигадуй справ, яких там немає.
+Джерело правди — Google Calendar. Не вигадуй справ, яких там немає.
+Типи: habit — щоденна звичка, task — разова задача, deadline — обовʼязкова з дедлайном.
 
-Справи — це переважно «пункти дня» без часу (подія на весь день). Звіт за вчора теж можна приймати: вчорашні пункти є нижче.
-Екранний час: користувач надсилає скріни або пише цифру — фіксуй через log_screen_time. Мета — менше телефону.
+Правила:
+1. Звіт (текст/голос) → зістав зі справами по суті й виклич mark_done. Самопочуття, енергію, інсайти, перешкоди → add_log. Звіт за вчора теж приймай.
+2. Звички (habit) не переносяться ніколи. Невиконана звичка = пропуск, −5 о 04:00.
+3. Невиконані/прострочені task і deadline — НЕ переносиш сам. Питаєш, що робити, з ціною: «перенести на <дата> (−N) / скасувати (−N)?». Дієш лише після відповіді.
+4. Нові справи з голосу/тексту → create_event. Обовʼязкове з кінцевою датою → deadline=true. Регулярне → recurrence. Без часу → пункт дня.
+5. Екранний час (цифра або скрін) → log_screen_time. Прогрес по цілях → update_goal (add); справи з match цілі рахуються самі.
+6. Видаляєш лише на явне прохання.
 
-Як працюєш:
-1. Звіт. Користувач розповідає, що зробив — зістав зі справами календаря (по суті, не дослівно) і виклич mark_done. Важливе поза календарем (самопочуття, енергія, інсайти, перешкоди, незаплановані дії) збережи через add_log.
-2. Невиконане — коротко запропонуй, куди перенести (найближчий вільний слот). Переносиш лише після згоди або якщо користувач сам попросив.
-3. Цілі місяця. Якщо у звіті є прогрес по цілі (прочитав 30 сторінок, пробіг 5 км, відклав 1000 грн) — update_goal з add. Справи календаря, що збігаються з match цілі, рахуються автоматично — не дублюй.
-4. Планування. Додаєш/переносиш/змінюєш справи в календарі. Для звичок — recurrence. Якщо час не вказано — обери вільний слот і назви його. Перед додаванням на інший день спершу подивись get_events, щоб не було накладок.
-5. Видаляєш лише на явне прохання.
-6. Після дій — коротке підтвердження, що саме зроблено.
+Бали: звичка +10, задача +15, дедлайн +40 (із запізненням +10/+20); пропуск звички −5; перенесення задачі −5×№, дедлайну −10×№; прострочення −5/−15 щодня; скасування −5/−25; ідеальний день +30; звіт +10.
+
+Прострочено:
+{overdue}
 
 Вчора:
 {yesterday_events}
@@ -120,16 +136,21 @@ SYSTEM = """Ти — особистий асистент ритму життя �
 Завтра:
 {tomorrow_events}
 
-Цілі місяця:
+Цілі:
 {goals}
 
-Останні нотатки:
+Нотатки:
 {log}"""
+
+
+def overdue(state, events, now):
+    last = game.cutoff(now)
+    return [e for e in events if e["kind"] != "habit" and fmt.ev_day(e) < last and e["id"] not in state["done"]]
 
 
 def _system(state, now):
     today, tomorrow = now.date(), now.date() + timedelta(days=1)
-    events = gcal.list_events(today - timedelta(days=1), tomorrow)
+    events = gcal.list_events(today - timedelta(days=14), tomorrow)
     done = state["done"]
 
     def block(d):
@@ -140,9 +161,12 @@ def _system(state, now):
                       f"{' (auto: ' + g['match'] + ')' if g.get('match') else ''}"
                       for g in state["goals"]) or "(немає)"
     log = "\n".join(f"{x['date']} {x['text']}" for x in state["log"][-8:]) or "(немає)"
+    od = "\n".join(f"{fmt.plain(e, done)} · з {fmt.ev_day(e).isoformat()}" for e in overdue(state, events, now)) or "(немає)"
     return SYSTEM.format(
         now=f"{fmt.WEEKDAYS[now.weekday()]}, {now:%Y-%m-%d %H:%M} ({config.TZ.key})",
-        today=today.isoformat(), today_events=block(today),
+        points=fmt.signed(game.day_points(state, today)),
+        ledger="\n".join(f"{fmt.signed(x['p'])} {x['w']}" for x in state["ledger"] if x["d"] == today.isoformat()) or "(порожньо)",
+        today=today.isoformat(), today_events=block(today), overdue=od,
         tomorrow_events=block(tomorrow), log=log, goals=goals,
         yesterday_events=block(today - timedelta(days=1)),
     )
@@ -151,6 +175,7 @@ def _system(state, now):
 def _ev(e, done):
     d = e["start"] if e["all_day"] else e["start"].date()
     return {"id": e["id"], "title": e["title"], "date": d.isoformat(), "time": fmt.when(e),
+            "kind": e["kind"], "moves": e.get("moves", 0),
             "done": e["id"] in done, "description": e["description"][:200]}
 
 
@@ -158,15 +183,47 @@ def _d(s):
     return date.fromisoformat(s) if s else None
 
 
-def set_done(state, ids, done, today):
+def set_done(state, ids, done, now):
+    total = 0
     for eid in ids:
         if (eid in state["done"]) == done:
             continue
+        ev = gcal.set_done(eid, done) or gcal.get_event(eid)
         if done:
-            state["done"][eid] = today.isoformat()
+            state["done"][eid] = now.date().isoformat()
         else:
             state["done"].pop(eid, None)
-        game.on_done(state, gcal.set_done(eid, done), done)
+        before = state["stats"]["xp"]
+        game.on_done(state, ev, done, now)
+        total += state["stats"]["xp"] - before
+    return total
+
+
+class Refused(Exception):
+    pass
+
+
+def move_event(state, eid, new_day, now, start_time=None, end_time=None):
+    """Перенесення зі штрафом. Повертає (подія, штраф)."""
+    cur = gcal.get_event(eid)
+    pts = 0
+    if new_day and new_day != fmt.ev_day(cur):
+        if cur["kind"] == "habit":
+            raise Refused("Щоденні звички не переносяться.")
+        props = None
+        if new_day > fmt.ev_day(cur):
+            n, pts = game.on_move(state, cur, now.date())
+            props = {"moves": n}
+        return gcal.update_event(eid, day=new_day, start_time=start_time, end_time=end_time, props=props), pts
+    return gcal.update_event(eid, start_time=start_time, end_time=end_time), 0
+
+
+def cancel_event(state, eid, now, series=False):
+    cur = gcal.get_event(eid)
+    pts = 0 if series else game.on_cancel(state, cur, now.date())
+    gcal.delete_event(eid, series)
+    state["done"].pop(eid, None)
+    return cur, pts
 
 
 def _exec(name, a, state, now):
@@ -176,19 +233,23 @@ def _exec(name, a, state, now):
     if name == "create_event":
         rec = [a["recurrence"]] if a.get("recurrence") else None
         e = gcal.create_event(a["title"], _d(a["date"]), a.get("start_time"), a.get("end_time"),
-                              a.get("duration_min"), a.get("description", ""), rec, a.get("remind_before_min"))
+                              a.get("duration_min"), a.get("description", ""), rec, a.get("remind_before_min"),
+                              deadline=bool(a.get("deadline")))
         return _ev(e, state["done"])
     if name == "update_event":
-        e = gcal.update_event(a["event_id"], a.get("title"), _d(a.get("date")), a.get("start_time"),
-                              a.get("end_time"), a.get("description"), a.get("remind_before_min"))
-        return _ev(e, state["done"])
+        try:
+            e, pts = move_event(state, a["event_id"], _d(a.get("date")), now, a.get("start_time"), a.get("end_time"))
+        except Refused as r:
+            return {"error": str(r)}
+        if any(a.get(k) is not None for k in ("title", "description", "remind_before_min")):
+            e = gcal.update_event(a["event_id"], a.get("title"), description=a.get("description"),
+                                  remind_before_min=a.get("remind_before_min"))
+        return {**_ev(e, state["done"]), "points": pts}
     if name == "delete_event":
-        gcal.delete_event(a["event_id"], bool(a.get("series")))
-        state["done"].pop(a["event_id"], None)
-        return {"ok": True}
+        e, pts = cancel_event(state, a["event_id"], now, bool(a.get("series")))
+        return {"ok": True, "title": e["title"], "points": pts}
     if name in ("mark_done", "unmark_done"):
-        set_done(state, a["event_ids"], name == "mark_done", today)
-        return {"ok": True}
+        return {"ok": True, "points": set_done(state, a["event_ids"], name == "mark_done", now)}
     if name == "add_goal":
         gid = f"g{len(state['goals']) + 1}"
         while any(g["id"] == gid for g in state["goals"]):
@@ -228,20 +289,40 @@ def _model_params():
     # gpt-5* — reasoning-моделі: без temperature, мінімальні міркування = дешевше і швидше
     if config.OPENAI_MODEL.startswith("gpt-5"):
         return {"reasoning_effort": "minimal"}
-    return {"temperature": 0.3}
+    return {"temperature": 0.2}
+
+
+ACTION_MARKS = {"✓": {"mark_done"}, "↷": {"update_event"}, "✕": {"delete_event"}, "+ ": {"create_event", "add_goal"}}
+
+
+def _claimed_without_tool(reply, used):
+    for mark, tools in ACTION_MARKS.items():
+        if any(line.lstrip().startswith(mark) for line in reply.splitlines()) and not tools & used:
+            return mark.strip()
+    return None
 
 
 def run(state, text, now: datetime):
     """Повертає (відповідь, множина викликаних інструментів)."""
+    fresh = (f"Актуально зараз: бали сьогодні {fmt.signed(game.day_points(state, now.date()))}, "
+             f"усього {state['stats']['xp']}. Числа з попередніх відповідей застаріли.")
     messages = [{"role": "system", "content": _system(state, now)}, *state["history"][-16:],
-                {"role": "user", "content": text}]
-    reply, used = "Готово.", set()
-    for _ in range(8):
+                {"role": "system", "content": fresh}, {"role": "user", "content": text}]
+    reply, used, checked = "Готово.", set(), False
+    for _ in range(9):
         msg = _client().chat.completions.create(
             model=config.OPENAI_MODEL, messages=messages, tools=TOOLS, **_model_params(),
         ).choices[0].message
         if not msg.tool_calls:
             reply = (msg.content or reply).strip()
+            claimed = _claimed_without_tool(reply, used)
+            if claimed and not checked:
+                # Модель «підтвердила» дію, не виконавши її — змушуємо виконати або виправити відповідь
+                checked = True
+                messages += [{"role": "assistant", "content": reply},
+                             {"role": "system", "content": f"Ти написав про дію ({claimed}), але не викликав інструмент. "
+                              "Виклич потрібний інструмент зараз. Якщо дія не потрібна — дай виправлену відповідь без цієї позначки."}]
+                continue
             break
         messages.append({"role": "assistant", "content": msg.content,
                          "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})

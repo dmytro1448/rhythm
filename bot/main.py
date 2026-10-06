@@ -8,16 +8,12 @@ from . import agent, config, fmt, game, gcal, progress, scheduler, store
 from . import telegram as tg
 
 HELP = """<b>Ритм</b>
+Голосом або текстом: звіт, нові задачі, дедлайни, перенесення, цілі.
+Скрін екранного часу — просто надішли фото.
 
-Пиши або говори — звіт, нові справи, перенесення.
-Порядок справ — з Google Calendar.
-
-/today — сьогодні
-/tomorrow — завтра
-/week — 7 днів
-/stats — статистика
-
-◐ Прогрес — твій застосунок: цілі, серії, колекція істот."""
+/today · /tomorrow · /week
+/stats — прогрес · /score — правила балів
+◐ Прогрес — застосунок: цілі, серії, істоти."""
 
 
 def _err(e):
@@ -81,12 +77,14 @@ def screen_shot(info, state, now, msg):
     mins = int(info["minutes"])
     prev = state["screen"].get((day - timedelta(days=1)).isoformat())
     game.on_screen(state, day, mins, info.get("apps"))
-    lines = [f"📱 <b>{fmt.hm(mins)}</b> · {fmt.day_title(day).lower()}"]
+    line = f"📱 {fmt.hm(mins)} · {fmt.short_date(day)}"
     if prev:
         diff = mins - prev["min"]
-        lines.append(f"{'↓' if diff < 0 else '↑'} {fmt.hm(abs(diff))} проти попереднього дня")
-    for a in (info.get("apps") or [])[:3]:
-        lines.append(f"· {escape(a['name'])} — {fmt.hm(int(a['minutes']))}")
+        line += f" · {'↓' if diff < 0 else '↑'}{fmt.hm(abs(diff))}"
+    lines = [line]
+    apps = info.get("apps") or []
+    if apps:
+        lines.append(" · ".join(f"{escape(a['name'])} {fmt.hm(int(a['minutes']))}" for a in apps[:3]))
     tg.send("\n".join(lines), html=True)
 
 
@@ -94,11 +92,9 @@ def web_app_data(raw, state, now):
     """Зміни, збережені з міні-застосунку: {"done": {event_id: true/false}}"""
     data = json.loads(raw)
     changes = data.get("done", {})
-    for eid, done in changes.items():
-        agent.set_done(state, [eid], bool(done), now.date())
+    pts = sum(agent.set_done(state, [eid], bool(done), now) for eid, done in changes.items())
     if changes:
-        n = sum(bool(v) for v in changes.values())
-        tg.send(f"✓ Збережено з застосунку · {n} виконано" if n else "Збережено з застосунку")
+        tg.send(f"✓ Збережено з застосунку · {fmt.signed(pts)} балів")
 
 
 def app_keyboard():
@@ -115,20 +111,26 @@ def command(cmd, state, now):
         kb = app_keyboard()
         tg.call("sendMessage", {"chat_id": config.CHAT_ID, "text": HELP, "parse_mode": "HTML",
                                 **({"reply_markup": kb} if kb else {})})
+        if kb:  # кнопка меню чату — лише в цьому приватному чаті, бо посилання містить ключ
+            tg.call("setChatMenuButton", {"chat_id": config.CHAT_ID, "menu_button": {
+                "type": "web_app", "text": "Прогрес", "web_app": {"url": progress.app_url()}}})
     elif cmd in ("/today", "/tomorrow"):
         d = today + timedelta(days=cmd == "/tomorrow")
         evs = fmt.for_day(gcal.list_events(d, d), d)
         tg.send(f"<b>{fmt.day_title(d)}</b>\n\n{fmt.day_block(evs, state['done'])}",
-                buttons=scheduler.done_buttons(state, evs, today), html=True)
+                buttons=scheduler.toggle_buttons(state, evs, today), html=True)
     elif cmd == "/week":
         evs = gcal.list_events(today, today + timedelta(days=6))
         blocks = [f"<b>{fmt.day_title(d)}</b>\n{fmt.day_block(fmt.for_day(evs, d), state['done'])}"
                   for d in (today + timedelta(days=i) for i in range(7))]
         tg.send("\n\n".join(blocks), html=True)
+    elif cmd == "/score":
+        tg.send(game.RULES, html=True)
     elif cmd == "/stats":
         p = state["stats"]
         lvl = game.level(p["xp"])
-        tg.send(f"<b>Рівень {lvl}</b> · {p['xp']} XP · серія {game.current_streak(state, today)}\n"
+        tg.send(f"<b>Рівень {lvl}</b> · {p['xp']} балів · сьогодні {fmt.signed(game.day_points(state, today))} · "
+                f"серія {game.current_streak(state, today)}\n"
                 f"{scheduler.week_stats(state, today)}\n{scheduler.week_stats(state, today, 30)}\n"
                 f"Істот: {len(state['unlocked'])}/{len(game.ROSTER)}", html=True)
     else:
@@ -136,26 +138,61 @@ def command(cmd, state, now):
 
 
 def handle_callback(cq, state):
-    try:
-        tg.call("answerCallbackQuery", {"callback_query_id": cq["id"]})
-    except Exception:
-        pass  # запит міг застаріти, поки чекали cron
     msg = cq.get("message") or {}
     data = cq.get("data", "")
-    entry = state["btn"].get(data[2:]) if data.startswith("t:") else None
+    parts = data.split(":")
+    entry = state["btn"].get(parts[1]) if len(parts) > 1 else None
     if msg.get("chat", {}).get("id") != config.CHAT_ID or not entry:
+        _answer(cq)
+        return
+    now = datetime.now(config.TZ)
+    eid, title = entry["id"], entry["t"]
+
+    if parts[0] == "t":  # перемикач виконано/ні
+        done = eid not in state["done"]
+        pts = agent.set_done(state, [eid], done, now)
+        label = f"{'✓' if done else '○'} {title}"
+        _replace_row(msg, data, [{"text": label, "callback_data": data}])
+        _answer(cq, f"{fmt.signed(pts)} балів")
         return
 
-    done = entry["id"] not in state["done"]
-    agent.set_done(state, [entry["id"]], done, datetime.now(config.TZ).date())
+    op = parts[2]
+    try:
+        if op == "d":
+            pts = agent.set_done(state, [eid], True, now)
+            label = f"✓ {title} · {fmt.signed(pts)}"
+        elif op == "m":
+            _, pts = agent.move_event(state, eid, max(now.date(), game.cutoff(now)) + timedelta(days=1), now)
+            label = f"↷ {title} → завтра · {fmt.signed(pts)}"
+        else:
+            _, pts = agent.cancel_event(state, eid, now)
+            label = f"✕ {title} · {fmt.signed(pts)}"
+    except agent.Refused as r:
+        _answer(cq, str(r))
+        return
+    _replace_row(msg, data, [{"text": label, "callback_data": "n"}])
+    _answer(cq, f"{fmt.signed(pts)} балів")
 
+
+def _answer(cq, text=""):
+    try:
+        tg.call("answerCallbackQuery", {"callback_query_id": cq["id"], "text": text})
+    except Exception:
+        pass  # запит міг застаріти, поки чекали cron
+
+
+def _replace_row(msg, data, new_row):
+    """Заміна рядка кнопок, у якому була натиснута кнопка."""
     markup = msg.get("reply_markup", {"inline_keyboard": []})
+    rows = []
     for row in markup["inline_keyboard"]:
-        for b in row:
-            if b.get("callback_data") == data:
-                b["text"] = f"{'✓' if done else '○'} {entry['t']}"
-    tg.call("editMessageReplyMarkup", {"chat_id": config.CHAT_ID, "message_id": msg["message_id"],
-                                       "reply_markup": markup})
+        hit = any(b.get("callback_data") == data for b in row)
+        rows.append(new_row if hit else row)
+    try:
+        tg.call("editMessageReplyMarkup", {"chat_id": config.CHAT_ID, "message_id": msg["message_id"],
+                                           "reply_markup": {"inline_keyboard": rows}})
+    except Exception:
+        pass
 
 
 def run_once(poll=0):

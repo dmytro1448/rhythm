@@ -1,4 +1,7 @@
-"""Гейміфікація: XP, рівні, серії, цілі, колекція динозаврів."""
+"""Бали, рівні, серії, цілі, яйця з істотами.
+
+Кожна зміна балів пишеться в журнал (ledger) з причиною — прогрес фіксується прозоро.
+"""
 
 import math
 import random
@@ -6,14 +9,31 @@ from datetime import date, datetime, timedelta
 
 from . import fmt
 
-XP_TASK = 10
-XP_REPORT = 25
-XP_PERFECT = 50
-XP_STREAK_DAY = 5  # × довжина серії, максимум 50
-CLOSED_PCT = 70  # день «закрито», якщо виконано ≥ 70%
+# ---- система балів
+DONE = {"habit": 10, "task": 15, "deadline": 40}  # виконано вчасно
+DONE_LATE = {"habit": 10, "task": 10, "deadline": 20}  # виконано після свого дня
+MISS_HABIT = -5  # звичка не відмічена до 04:00 наступного дня
+MOVE = {"task": -5, "deadline": -10}  # × номер перенесення: −5, −10, −15…
+OVERDUE = {"task": -5, "deadline": -15}  # за кожен день прострочення
+CANCEL = {"task": -5, "deadline": -25, "habit": -5}
+PERFECT = 30  # усі пункти дня виконані
+REPORT = 10  # звіт за день (раз на день)
+SCREEN = 5  # зафіксовано екранний час за день
+STREAK_DAY, STREAK_MAX = 2, 20  # бонус серії: 2 × днів, не більше 20
+CLOSED_PCT = 70  # день «закрито» для серії, якщо виконано ≥ 70%
+DAY_ENDS_AT = 4  # день остаточно закривається о 04:00 наступного
 
-# Яйця: id, рідкість, підказка, метрика, поріг.
-# Хто вилупиться — вирішує випадковий seed у момент відкриття.
+RULES = """<b>Бали</b>
+✓ звичка +10 · задача +15 · дедлайн +40
+✓ із запізненням: задача +10 · дедлайн +20
+✗ пропуск звички −5 (звички не переносяться)
+↷ перенесення: задача −5 × №, дедлайн −10 × №
+⏰ прострочено: задача −5, дедлайн −15 щодня
+✕ скасування: задача −5, дедлайн −25
+★ ідеальний день +30 · звіт +10 · екранний час +5
+🔥 серія +2 за кожен день (до +20)"""
+
+# Яйця: id, рідкість, підказка, метрика, поріг. Хто вилупиться — вирішує випадковий seed.
 ROSTER = [
     ("first_step", "common", "Виконай першу справу", "tasks", 1),
     ("first_report", "common", "Надішли перший звіт", "reports", 1),
@@ -42,18 +62,33 @@ ROSTER = [
 
 def init(state):
     state.setdefault("stats", {"xp": 0, "tasks": 0, "reports": 0, "voice": 0, "perfect": 0})
-    state.setdefault("report_days", {})
-    state.setdefault("unlocked", {})
-    state.setdefault("goals", [])
-    state.setdefault("best_streak", 0)
-    state.setdefault("screen", {})  # дата -> {min, apps}
+    for k, v in (("report_days", {}), ("unlocked", {}), ("goals", []), ("best_streak", 0),
+                 ("screen", {}), ("ledger", []), ("done_pts", {}), ("charged", {})):
+        state.setdefault(k, v)
 
 
-def add_xp(state, n):
-    state["stats"]["xp"] = max(0, state["stats"]["xp"] + n)
+def cutoff(now: datetime) -> date:
+    """Останній день, який ще «триває»: до 04:00 це вчора."""
+    return now.date() if now.hour >= DAY_ENDS_AT else now.date() - timedelta(days=1)
 
 
-# ---- рівні: на рівень n потрібно 100·n·(n−1)/2 XP (0, 100, 300, 600, 1000…)
+def points(state, day: date, pts: int, why: str):
+    if not pts:
+        return
+    state["ledger"].append({"d": day.isoformat(), "p": pts, "w": why})
+    state["stats"]["xp"] = max(0, state["stats"]["xp"] + pts)
+
+
+def day_points(state, day: date) -> int:
+    key = day.isoformat()
+    return sum(x["p"] for x in state["ledger"] if x["d"] == key)
+
+
+def potential(events) -> int:
+    return sum(DONE[e["kind"]] for e in events)
+
+
+# ---- рівні: на рівень n потрібно 50·n·(n−1) балів (0, 100, 300, 600, 1000…)
 
 def level_floor(n):
     return 50 * n * (n - 1)
@@ -65,14 +100,45 @@ def level(xp):
 
 # ---- події
 
-def on_done(state, title, done: bool):
+def on_done(state, ev, done: bool, now: datetime):
+    today = now.date()
+    t = ev["title"]
+    if done:
+        late = fmt.ev_day(ev) < cutoff(now)
+        pts = (DONE_LATE if late else DONE)[ev["kind"]]
+        state["done_pts"][ev["id"]] = pts
+        points(state, today, pts, f"✓ {t}" + (" (із запізненням)" if late else ""))
+    else:
+        points(state, today, -state["done_pts"].pop(ev["id"], DONE[ev["kind"]]), f"↺ {t}")
     sign = 1 if done else -1
     state["stats"]["tasks"] = max(0, state["stats"]["tasks"] + sign)
-    add_xp(state, sign * XP_TASK)
-    t = title.lower()
+    low = t.lower()
     for g in state["goals"]:
-        if g.get("match") and any(m.strip() and m.strip().lower() in t for m in g["match"].split(",")):
+        if g.get("match") and any(m.strip() and m.strip().lower() in low for m in g["match"].split(",")):
             g["progress"] = max(0, g["progress"] + sign)
+
+
+def on_move(state, ev, today: date) -> tuple:
+    """Повертає (номер перенесення, штраф)."""
+    n = ev.get("moves", 0) + 1
+    pts = MOVE[ev["kind"]] * n
+    points(state, today, pts, f"↷ {ev['title']} (перенесення №{n})")
+    return n, pts
+
+
+def on_cancel(state, ev, today: date) -> int:
+    pts = CANCEL[ev["kind"]]
+    points(state, today, pts, f"✕ {ev['title']}")
+    return pts
+
+
+def on_overdue(state, ev, today: date):
+    key = f"{ev['id']}:{today.isoformat()}"
+    if key in state["charged"]:
+        return
+    state["charged"][key] = today.isoformat()
+    days = (today - fmt.ev_day(ev)).days
+    points(state, today, OVERDUE[ev["kind"]], f"⏰ {ev['title']} (прострочено {days} дн)")
 
 
 def on_report(state, today: date):
@@ -80,14 +146,14 @@ def on_report(state, today: date):
     if key not in state["report_days"]:
         state["report_days"][key] = True
         state["stats"]["reports"] += 1
-        add_xp(state, XP_REPORT)
+        points(state, today, REPORT, "звіт за день")
 
 
 def on_screen(state, day: date, minutes: int, apps=None):
     first = day.isoformat() not in state["screen"]
     state["screen"][day.isoformat()] = {"min": int(minutes), "apps": (apps or [])[:5]}
     if first:
-        add_xp(state, 5)
+        points(state, day, SCREEN, "екранний час зафіксовано")
 
 
 def on_voice(state):
@@ -97,28 +163,36 @@ def on_voice(state):
 # ---- дні
 
 def update_days(state, events, now: datetime):
-    """Оновлює planned/done для вчора й сьогодні; фіналізує минулі дні."""
+    """Оновлює статистику дня для вчора й сьогодні; закриває минулі дні з бонусами/штрафами."""
     today = now.date()
     for d in (today - timedelta(days=1), today):
         rec = state["days"].get(d.isoformat(), {})
         if rec.get("final"):
             continue
         evs = fmt.for_day(events, d)
-        rec.update(planned=len(evs), done=sum(e["id"] in state["done"] for e in evs))
+        rec.update(
+            planned=len(evs),
+            done=sum(e["id"] in state["done"] for e in evs),
+            missed=[e["title"] for e in evs if e["kind"] == "habit" and e["id"] not in state["done"]],
+        )
         state["days"][d.isoformat()] = rec
 
-    cutoff = today if now.hour >= 4 else today - timedelta(days=1)
+    last_open = cutoff(now)
     for key in sorted(state["days"]):
         rec = state["days"][key]
-        if key < cutoff.isoformat() and not rec.get("final"):
-            rec["final"] = True
-            if rec["planned"] and rec["done"] >= rec["planned"]:
-                state["stats"]["perfect"] += 1
-                add_xp(state, XP_PERFECT)
-            s = streak(state, date.fromisoformat(key))
-            if s:
-                add_xp(state, min(50, XP_STREAK_DAY * s))
-            state["best_streak"] = max(state["best_streak"], s)
+        if key >= last_open.isoformat() or rec.get("final"):
+            continue
+        rec["final"] = True
+        d = date.fromisoformat(key)
+        for t in rec.get("missed", []):
+            points(state, d, MISS_HABIT, f"✗ пропуск: {t}")
+        if rec.get("planned") and rec["done"] >= rec["planned"]:
+            state["stats"]["perfect"] += 1
+            points(state, d, PERFECT, "★ ідеальний день")
+        s = streak(state, d)
+        if s:
+            points(state, d, min(STREAK_MAX, STREAK_DAY * s), f"🔥 серія {s} дн")
+        state["best_streak"] = max(state["best_streak"], s)
 
 
 def pct(rec):
@@ -158,7 +232,7 @@ def goal_pct(g):
     return min(100, round(100 * g["progress"] / g["target"])) if g["target"] else 0
 
 
-# ---- досягнення
+# ---- яйця
 
 def metrics(state, today):
     goals = [goal_pct(g) for g in state["goals"]]
@@ -173,12 +247,11 @@ def metrics(state, today):
         "goal_max": max(goals, default=0),
         "goals_all": int(bool(goals) and min(goals) >= 100),
         "closed_30": sum(closed(r) for r in month),
-        "screen": len(state.get("screen", {})),
+        "screen": len(state["screen"]),
     }
 
 
 def check_unlocks(state, today) -> list:
-    """Повертає щойно відкриті досягнення."""
     m = metrics(state, today)
     new = []
     for aid, rarity, hint, metric, threshold in ROSTER:

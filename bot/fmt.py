@@ -1,5 +1,5 @@
 from datetime import date
-from html import escape
+from html import escape  # noqa: F401 — використовується як fmt.escape
 
 WEEKDAYS = ["понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя"]
 MONTHS = ["січня", "лютого", "березня", "квітня", "травня", "червня",
@@ -14,6 +14,10 @@ def on_day(e, d: date):
     if e["all_day"]:
         return e["start"] <= d < e["end"]
     return e["start"].date() == d
+
+
+def ev_day(e) -> date:
+    return e["start"] if e["all_day"] else e["start"].date()
 
 
 def for_day(events, d: date):
@@ -51,8 +55,9 @@ def day_block(events, done_ids=None):
 
 def plain(e, done_ids):
     done = " ✓" if e["id"] in done_ids else ""
-    t = "пункт дня" if e["all_day"] else when(e)
-    return f"[{e['id']}] {t} — {e['title']}{done}"
+    kind = {"habit": "звичка", "task": "задача", "deadline": "ДЕДЛАЙН"}[e["kind"]]
+    t = "" if e["all_day"] else f" {when(e)}"
+    return f"[{e['id']}] {kind}{t} — {e['title']}{done}"
 
 
 def hm(minutes):
@@ -65,3 +70,11 @@ def plural(n, one, few, many):
     if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
         return f"{n} {few}"
     return f"{n} {many}"
+
+
+def short_date(d: date):
+    return f"{d.day} {MONTHS[d.month - 1][:3]}"
+
+
+def signed(n: int) -> str:
+    return f"+{n}" if n > 0 else f"−{abs(n)}" if n < 0 else "0"

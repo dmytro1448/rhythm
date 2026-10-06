@@ -39,8 +39,9 @@ jobs:
           WEBAPP_URL: ${{ vars.WEBAPP_URL }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           TIMEZONE: ${{ vars.TIMEZONE }}
-          MORNING_HOUR: ${{ vars.MORNING_HOUR }}
-          EVENING_HOUR: ${{ vars.EVENING_HOUR }}
+          MORNING_TIME: ${{ vars.MORNING_TIME }}
+          MIDDAY_TIME: ${{ vars.MIDDAY_TIME }}
+          EVENING_TIME: ${{ vars.EVENING_TIME }}
           REMIND_BEFORE_MIN: ${{ vars.REMIND_BEFORE_MIN }}
 
       - name: Save state
