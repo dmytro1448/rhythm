@@ -68,10 +68,6 @@ def handle_message(msg, state):
     if used & {"mark_done", "add_log", "update_goal"}:
         game.on_report(state, now.date())
     tg.send(reply)
-    if "set_budget" in used and "make_meal_plan" not in used:
-        tg.typing()
-        finance.make_meal_plan(agent._client(), config.OPENAI_MODEL, state, now.date())
-        used = used | {"make_meal_plan"}
     if "make_meal_plan" in used and state.get("meal_plan"):
         tg.send(state["meal_plan"]["text"])
     _money_alerts(state, now)
@@ -113,10 +109,9 @@ def receipt(info, state, now):
         amount = round(sum(a for _, a in items), 2)
         names = ", ".join(n for n, _ in items[:4])
         finance.add_expense(state, amount, cat, f"{store_name}: {names}", day, source="receipt")
-        em, name, _ = finance.CAT.get(cat, ("📦", "Інше", 0))
+        em, name = finance.CAT.get(cat, ("📦", "Інше"))
         parts.append(f"{em} {name} {finance.money(amount)}")
-    s = finance.status(state, now.date())
-    tail = f"\nМожна ще сьогодні: {finance.money(max(0, s['left_today']), s['currency'])}" if s else ""
+    tail = f"\nСьогодні: {finance.money(finance.period(state, now.date(), now.date())['total'])}"
     tg.send(f"🧾 {escape(store_name)} · {finance.money(total)}\n" + " · ".join(parts) + tail)
     _money_alerts(state, now)
 

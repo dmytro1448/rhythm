@@ -1,63 +1,35 @@
-"""Бюджет і витрати: план, ліміт на сьогодні, тижневий ліміт на їжу, контроль темпу, раціон."""
+"""Облік витрат без бюджету: запис, підрахунок, звіти, попередження про незвично великі витрати."""
 
 import uuid
 from datetime import date, timedelta
 
-from . import config
-
-BUFFER_PCT = 10  # подушка безпеки — не витрачається без потреби
-# Частки гнучкого бюджету (після обовʼязкових платежів і подушки)
 CATEGORIES = [
-    ("food", "🛒", "Їжа", 55),
-    ("transport", "🚌", "Транспорт", 10),
-    ("home", "🧴", "Побут і гігієна", 10),
-    ("health", "💊", "Здоровʼя", 5),
-    ("comm", "📶", "Звʼязок", 5),
-    ("fun", "🎈", "Дозвілля", 5),
-    ("other", "📦", "Інше", 10),
+    ("food", "🛒", "Їжа"),
+    ("cafe", "🍔", "Кафе і фастфуд"),
+    ("transport", "🚌", "Транспорт"),
+    ("home", "🧴", "Побут і гігієна"),
+    ("health", "💊", "Здоровʼя"),
+    ("comm", "📶", "Звʼязок"),
+    ("fun", "🎈", "Дозвілля"),
+    ("housing", "🏠", "Житло"),
+    ("other", "📦", "Інше"),
 ]
-CAT = {k: (em, name, share) for k, em, name, share in CATEGORIES}
-CAT_KEYS = [c[0] for c in CATEGORIES] + ["fixed"]
+CAT = {k: (em, name) for k, em, name in CATEGORIES}
+CAT_KEYS = [c[0] for c in CATEGORIES]
 
-WITHIN_DAY = 10  # бали за день у межах ліміту
-OVER_DAY = -10  # бали за перевитрату дня
-LOGGED_DAY = 5  # бали за записані витрати
+LOGGED_DAY = 5  # бали за день, коли витрати записані
+CUR = "€"
 
 
 def init(state):
-    state.setdefault("budget", None)
     state.setdefault("expenses", [])
-    state.setdefault("meal_plan", None)
     state.setdefault("alerts", {})
+    state.pop("budget", None)  # бюджет більше не використовується
 
 
-def money(x, cur="€"):
-    s = f"{x:,.2f}".replace(",", " ").replace(".", ",")
-    return f"{s} {cur}"
-
-
-def set_budget(state, total, start: date, end: date, fixed=None, currency="€"):
-    state["budget"] = {
-        "total": round(float(total), 2), "currency": currency,
-        "start": start.isoformat(), "end": end.isoformat(),
-        "fixed": [{"name": f["name"], "amount": round(float(f["amount"]), 2)} for f in (fixed or [])],
-    }
-    return plan(state)
-
-
-def plan(state):
-    b = state.get("budget")
-    if not b:
-        return None
-    fixed = sum(f["amount"] for f in b["fixed"])
-    free = max(0.0, b["total"] - fixed)
-    buffer = round(free * BUFFER_PCT / 100, 2)
-    flexible = round(free - buffer, 2)
-    days = (date.fromisoformat(b["end"]) - date.fromisoformat(b["start"])).days + 1
-    limits = {k: round(flexible * share / 100, 2) for k, (_, _, share) in CAT.items()}
-    return {"fixed": round(fixed, 2), "buffer": buffer, "flexible": flexible, "days": days,
-            "limits": limits, "food_week": round(limits["food"] * 7 / days, 2),
-            "per_day": round(flexible / days, 2)}
+def money(x, cur=CUR):
+    s = f"{abs(x):,.2f}".replace(",", " ").replace(".", ",")
+    return f"{'−' if x < 0 else ''}{s} {cur}"
 
 
 def add_expense(state, amount, category, note="", day: date = None, source="text"):
@@ -74,51 +46,49 @@ def delete_expense(state, eid):
     return len(state["expenses"]) < before
 
 
-def _in_period(state, e):
-    b = state.get("budget")
-    return bool(b) and b["start"] <= e["d"] <= b["end"]
-
-
 def week_start(d: date):
     return d - timedelta(days=d.weekday())
 
 
+def _sum(items):
+    return round(sum(e["amount"] for e in items), 2)
+
+
+def period(state, first: date, last: date):
+    items = [e for e in state["expenses"] if first.isoformat() <= e["d"] <= last.isoformat()]
+    by_cat = {}
+    for e in items:
+        by_cat[e["cat"]] = round(by_cat.get(e["cat"], 0) + e["amount"], 2)
+    days = (last - first).days + 1
+    return {"total": _sum(items), "by_cat": dict(sorted(by_cat.items(), key=lambda kv: -kv[1])),
+            "count": len(items), "days": days, "per_day": round(_sum(items) / days, 2) if days else 0}
+
+
 def status(state, today: date):
-    """Головні числа: ліміт на сьогодні, залишок, тиждень їжі, категорії."""
-    b, p = state.get("budget"), plan(state)
-    if not p:
+    """Сьогодні / тиждень / місяць / середнє за день (за днями, коли щось записано)."""
+    if not state["expenses"]:
         return None
-    exp = [e for e in state["expenses"] if _in_period(state, e)]
-    flex = [e for e in exp if e["cat"] != "fixed"]
-    t = today.isoformat()
-    start, end = date.fromisoformat(b["start"]), date.fromisoformat(b["end"])
-    day = min(max(today, start), end)
-    days_left = (end - day).days + 1
-    spent_before = sum(e["amount"] for e in flex if e["d"] < t)
-    spent_today = sum(e["amount"] for e in flex if e["d"] == t)
-    allow_today = round(max(0.0, p["flexible"] - spent_before) / days_left, 2)
-    ws = week_start(today).isoformat()
-    food_week = sum(e["amount"] for e in flex if e["cat"] == "food" and e["d"] >= ws and e["d"] <= t)
-    by_cat = {k: round(sum(e["amount"] for e in exp if e["cat"] == k), 2) for k in CAT_KEYS}
-    elapsed = ((day - start).days + 1) / p["days"]
+    first_day = date.fromisoformat(min(e["d"] for e in state["expenses"]))
+    tracked = max(1, (today - first_day).days + 1)
+    last14 = period(state, max(first_day, today - timedelta(days=13)), today)
     return {
-        "currency": b["currency"], "total": b["total"], **p,
-        "spent": round(sum(e["amount"] for e in flex), 2),
-        "spent_today": round(spent_today, 2), "allow_today": allow_today,
-        "left_today": round(allow_today - spent_today, 2),
-        "left_month": round(p["flexible"] - spent_before - spent_today, 2),
-        "days_left": days_left, "elapsed": round(elapsed, 3),
-        "food_week_spent": round(food_week, 2), "by_cat": by_cat,
-        "fixed_paid": by_cat["fixed"],
+        "today": period(state, today, today),
+        "week": period(state, week_start(today), today),
+        "prev_week": period(state, week_start(today) - timedelta(days=7), week_start(today) - timedelta(days=1)),
+        "month": period(state, today.replace(day=1), today),
+        "all": period(state, first_day, today),
+        "avg_day": round(_sum(state["expenses"]) / tracked, 2),
+        "avg14": last14["per_day"],
+        "tracked_days": tracked,
     }
 
 
 def alerts(state, today: date):
-    """Нові попередження (кожне — не частіше раз на день)."""
+    """Попередження, якщо сьогодні або категорія тижня помітно вища за звичне (не частіше раз на день)."""
     s = status(state, today)
-    if not s:
+    if not s or s["tracked_days"] < 5:
         return []
-    cur, out, t = s["currency"], [], today.isoformat()
+    out, t = [], today.isoformat()
 
     def once(key, text):
         k = f"{key}:{t}"
@@ -126,80 +96,74 @@ def alerts(state, today: date):
             state["alerts"][k] = t
             out.append(text)
 
-    if s["spent_today"] > s["allow_today"] * 1.0 and s["spent_today"] > 0:
-        once("day", f"⚠️ Ліміт дня перевищено: {money(s['spent_today'], cur)} з {money(s['allow_today'], cur)}. "
-                    f"Завтра ліміт стане меншим.")
-    if s["food_week_spent"] >= s["food_week"] * 0.8:
-        left = s["food_week"] - s["food_week_spent"]
-        once("food", f"⚠️ Їжа цього тижня: {money(s['food_week_spent'], cur)} з {money(s['food_week'], cur)}"
-                     + (f" — лишилось {money(left, cur)}." if left > 0 else " — тижневий ліміт вичерпано."))
-    for k, (em, name, _) in CAT.items():
-        lim, spent = s["limits"][k], s["by_cat"][k]
-        if k != "food" and lim and spent > lim * max(s["elapsed"], 0.25) * 1.2 and spent > lim * 0.5:
-            once(f"cat_{k}", f"⚠️ {em} {name}: {money(spent, cur)} з {money(lim, cur)} на місяць — темп завеликий.")
-    if s["left_month"] < 0:
-        once("month", f"🚨 Гнучкий бюджет вичерпано на {money(-s['left_month'], cur)}. Далі — лише з подушки ({money(s['buffer'], cur)}).")
+    if s["today"]["total"] > max(s["avg14"] * 2, 10):
+        once("day", f"⚠️ Сьогодні {money(s['today']['total'])} — це в {s['today']['total'] / max(s['avg14'], 0.01):.1f}× більше "
+                    f"за звичний день ({money(s['avg14'])}).")
+    prev = s["prev_week"]["by_cat"]
+    for cat, amount in s["week"]["by_cat"].items():
+        if prev.get(cat) and amount > prev[cat] * 1.5 and amount - prev[cat] > 10:
+            em, name = CAT[cat]
+            once(f"cat_{cat}", f"⚠️ {em} {name} цього тижня вже {money(amount)} — минулого тижня було {money(prev[cat])}.")
     return out
 
 
 def close_day(state, d: date):
-    """Підсумок дня для балів: (бали, причина) або None."""
-    s = status(state, d)
-    if not s or not (state.get("budget", {})["start"] <= d.isoformat() <= state["budget"]["end"]):
-        return []
-    res = []
     if any(e["d"] == d.isoformat() for e in state["expenses"]):
-        res.append((LOGGED_DAY, "💶 витрати записано"))
-    if s["spent_today"] <= s["allow_today"]:
-        res.append((WITHIN_DAY, "💶 день у межах бюджету"))
-    else:
-        res.append((OVER_DAY, f"💶 перевитрата {money(s['spent_today'] - s['allow_today'], s['currency'])}"))
-    return res
+        return [(LOGGED_DAY, "💶 витрати записано")]
+    return []
 
 
-# ---- текст для повідомлень
+# ---- тексти
+
+def cats_line(by_cat, limit=4):
+    return " · ".join(f"{CAT[k][0]} {money(v)}" for k, v in list(by_cat.items())[:limit])
+
 
 def short_line(state, today):
     s = status(state, today)
     if not s:
-        return "💶 Бюджет не задано — скажи боту суму на місяць."
-    cur = s["currency"]
-    return (f"💶 Можна сьогодні: <b>{money(max(0, s['left_today']), cur)}</b> · залишок {money(s['left_month'], cur)}"
-            f" · їжа тиждень {money(s['food_week_spent'], cur)}/{money(s['food_week'], cur)}")
+        return "💶 Витрати: надсилай голосом, текстом або фото чека."
+    y = period(state, today - timedelta(days=1), today - timedelta(days=1))
+    return f"💶 Вчора {money(y['total'])} · тиждень {money(s['week']['total'])} · у середньому {money(s['avg_day'])}/день"
 
 
-def plan_text(state, today):
+def day_report(state, today):
     s = status(state, today)
-    cur = s["currency"]
-    lines = [f"<b>Бюджет {money(s['total'], cur)}</b> · {s['days']} днів",
-             f"Обовʼязкові: {money(s['fixed'], cur)}" if s["fixed"] else None,
-             f"Подушка {BUFFER_PCT}%: {money(s['buffer'], cur)} — не чіпаємо",
-             f"На життя: {money(s['flexible'], cur)} ≈ {money(s['per_day'], cur)}/день",
-             f"🛒 Їжа: {money(s['food_week'], cur)} на тиждень"]
-    lines += [f"{em} {name}: {money(s['limits'][k], cur)}" for k, (em, name, _) in CAT.items() if k != "food"]
+    if not s:
+        return "💶 Витрат сьогодні не записано. Що купував? Голосом, текстом або фото чека."
+    t = s["today"]
+    head = f"💶 Сьогодні {money(t['total'])}" + (f" · {cats_line(t['by_cat'], 3)}" if t["count"] else "")
+    return f"{head}\nТиждень {money(s['week']['total'])}. Що ще купував? Голосом, текстом або фото чека."
+
+
+def week_report(state, today):
+    s = status(state, today)
+    if not s:
+        return ""
+    w, p = s["week"], s["prev_week"]
+    diff = ""
+    if p["total"]:
+        delta = w["total"] - p["total"]
+        diff = f" · {'↑' if delta > 0 else '↓'} {money(abs(delta))} до минулого тижня"
+    top = max(w["by_cat"].items(), key=lambda kv: kv[1]) if w["by_cat"] else None
+    lines = [f"<b>💶 Тиждень: {money(w['total'])}</b>{diff}", cats_line(w["by_cat"], 6)]
+    if top and w["total"]:
+        lines.append(f"Найбільше — {CAT[top[0]][1].lower()} ({round(100 * top[1] / w['total'])}%).")
     return "\n".join(x for x in lines if x)
 
 
-# ---- раціон (окремий агент)
+# ---- раціон (окремий агент, за запитом)
 
-MEAL_PROMPT = """Ти — дієтолог-економіст. Склади раціон на 7 днів для однієї дорослої людини в Латвії (магазини Lidl, Maxima, Rimi).
-Бюджет на їжу: {budget} на тиждень — не перевищуй, залиш 5% запасу. Ціни — реалістичні латвійські.
-Принципи: прості дешеві продукти (крупи, яйця, курка, бобові, сезонні овочі, кефір/сир), 3 прийоми їжі + перекус,
-~2000–2300 ккал і ≥100 г білка на день, готування великими порціями на 2 дні, мінімум відходів. Людина записує їжу в FatSecret.
-
-Формат — простий текст українською, без markdown-таблиць, стисло:
-🛒 Список покупок (продукт — кількість — ціна), внизу «Разом: N €».
-🍽 Меню: Пн–Нд, по рядку на день (сніданок / обід / вечеря / перекус).
-💡 3 короткі поради економії."""
+MEAL_PROMPT = """Ти — дієтолог-економіст. Склади раціон на 7 днів для однієї дорослої людини в Латвії (Lidl, Maxima, Rimi).
+Сума на продукти: {budget} на тиждень — не перевищуй. Ціни — реалістичні латвійські.
+Прості дешеві продукти, 3 прийоми їжі + перекус, ~2000–2300 ккал і ≥100 г білка на день, готування на 2 дні, мінімум відходів.
+Формат — простий текст українською, стисло: 🛒 список покупок (продукт — кількість — ціна, «Разом: N €»), 🍽 меню Пн–Нд по рядку, 💡 3 поради."""
 
 
-def make_meal_plan(client, model, state, today):
-    s = status(state, today)
-    if not s:
-        return None
+def make_meal_plan(client, model, state, weekly_amount: float):
     text = client.chat.completions.create(
         model=model, temperature=0.4,
-        messages=[{"role": "user", "content": MEAL_PROMPT.format(budget=money(s["food_week"], s["currency"]))}],
+        messages=[{"role": "user", "content": MEAL_PROMPT.format(budget=money(weekly_amount))}],
     ).choices[0].message.content.strip()
-    state["meal_plan"] = {"week": week_start(today).isoformat(), "budget": s["food_week"], "text": text}
+    state["meal_plan"] = {"budget": weekly_amount, "text": text}
     return text

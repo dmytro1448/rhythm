@@ -21,7 +21,7 @@ IMAGE_PROMPT = """Визнач, що на зображенні, і поверн�
  "apps": [{"name": "...", "minutes": N}] до 5 найбільших}
 2) Чек / квитанція / підтвердження оплати:
 {"type": "receipt", "store": "назва", "date": "YYYY-MM-DD" | null, "currency": "€", "total": сума до сплати,
- "items": [{"name": "коротко українською", "amount": ціна з урахуванням знижок, "category": "food|transport|home|health|comm|fun|other"}]}
+ "items": [{"name": "коротко українською", "amount": ціна з урахуванням знижок, "category": "food|cafe|transport|home|health|comm|fun|housing|other"}]}
    Сума amount усіх items має дорівнювати total (знижки розподіли по товарах). Продукти й кафе — food, засоби гігієни/побутова хімія — home.
 3) Інше: {"type": "other", "summary": "коротко, що на фото"}"""
 
@@ -93,9 +93,12 @@ TOOLS = [
         "event_id": {"type": "string"}, "title": {"type": "string"}, "date": _DATE,
         "start_time": _TIME, "end_time": _TIME, "description": {"type": "string"},
         "remind_before_min": {"type": "integer"},
+        "deadline": {"type": "boolean", "description": "true — зробити задачу обовʼязковою (дедлайн)"},
     }, ["event_id"]),
     _fn("delete_event", "Скасувати справу (штраф: задача −5, дедлайн −25). Лише на явне прохання. series=true — прибрати всю регулярну серію без штрафу (напр. «знайшов роботу — прибери пошук роботи»).",
-        {"event_id": {"type": "string"}, "series": {"type": "boolean"}}, ["event_id"]),
+        {"event_id": {"type": "string"}, "series": {"type": "boolean"},
+         "replaced": {"type": "boolean", "description": "true — задачу замінює щойно створена обовʼязкова справа з тим самим змістом; без штрафу"}},
+        ["event_id"]),
     _fn("log_screen_time", "Записати екранний час телефону за день.",
         {"minutes": {"type": "integer"}, "date": _DATE}, ["minutes", "date"]),
     _fn("mark_done", "Позначити справи виконаними.",
@@ -116,21 +119,18 @@ TOOLS = [
         "title": {"type": "string"}, "target": {"type": "integer"},
     }, ["goal_id"]),
     _fn("delete_goal", "Видалити ціль. Лише на явне прохання.", {"goal_id": {"type": "string"}}, ["goal_id"]),
-    _fn("set_budget", "Задати бюджет на місяць (весь період плану). fixed — обовʼязкові платежі (житло, навчання, борги…).", {
-        "total": {"type": "number", "description": "Уся сума грошей на період"},
-        "currency": {"type": "string", "description": "€ за замовчуванням"},
-        "fixed": {"type": "array", "items": {"type": "object", "properties": {
-            "name": {"type": "string"}, "amount": {"type": "number"}}, "required": ["name", "amount"]}},
-    }, ["total"]),
     _fn("add_expense", "Записати витрату. Кілька покупок різних категорій — окремими викликами.", {
         "amount": {"type": "number"},
         "category": {"type": "string", "enum": finance.CAT_KEYS,
-                     "description": "food — продукти/кафе, transport, home — побут/гігієна, health, comm — звʼязок, fun, other, fixed — обовʼязковий платіж"},
+                     "description": "food — продукти й напої з магазину (вода, чай, хліб…), cafe — лише їжа/напої в закладі (ресторан, фастфуд, кавʼярня), transport, home — побут/гігієна, health, comm — звʼязок, fun — дозвілля, housing — житло, other"},
         "note": {"type": "string", "description": "Що саме, коротко"},
         "date": _DATE,
     }, ["amount", "category"]),
     _fn("delete_expense", "Видалити помилкову витрату за id.", {"expense_id": {"type": "string"}}, ["expense_id"]),
-    _fn("make_meal_plan", "Скласти раціон і список покупок на тиждень у межах тижневого ліміту на їжу (окремий агент).", {}),
+    _fn("expense_report", "Звіт про витрати за період: сума, по категоріях, середнє за день.",
+        {"from_date": _DATE, "to_date": _DATE}, ["from_date", "to_date"]),
+    _fn("make_meal_plan", "Скласти раціон і список покупок на тиждень на вказану суму (окремий агент). Лише на прохання.",
+        {"weekly_amount": {"type": "number"}}, ["weekly_amount"]),
     _fn("add_log", "Зберегти нотатку зі звіту: самопочуття, енергія, інсайти, проблеми, дії поза календарем.", {
         "text": {"type": "string", "description": "Стисло, 1–2 речення"},
         "energy": {"type": "integer", "description": "Енергія 1–5, якщо зрозуміло зі звіту"},
@@ -166,15 +166,14 @@ SYSTEM = """Ти — асистент ритму життя в Telegram. Мов�
 4. Нові справи з голосу/тексту → create_event з правильною group. Не створюй справу, якщо така вже є в календарі на цю дату. У звіті фраза на кшталт «пайтон завтра» про щоденну звичку означає лише «сьогодні не зробив» — нічого не створюй і не переноси. Обовʼязкове з кінцевою датою → deadline=true. Регулярне → recurrence. Без часу → пункт дня.
 5. Екранний час (цифра або скрін) → log_screen_time. Прогрес по цілях → update_goal (add); справи з match цілі рахуються самі.
 6. Видаляєш лише на явне прохання.
+7. «Обовʼязково», «до пʼятниці», «кров з носа» → нова справа з deadline=true на кінцеву дату (create_event). Якщо в найближчі дні вже є разова задача (task) з тим самим змістом — прибери її (delete_event replaced=true, без штрафу). Не відповідай «вже є». Назву бери зі слів користувача. Відповідь: «+ <назва> · до <дата> · дедлайн».
+8. mark_done — ЛИШЕ коли користувач прямо каже, що вже зробив. Нова справа ніколи не позначається виконаною.
 
-Гроші (бюджет обмежений, людина фінансово недосвідчена):
-- Суму на місяць → set_budget (обовʼязкові платежі — у fixed). Відповідь рівно в 2 рядки:
-  «💶 Бюджет 450 € · обовʼязкові 200 € · подушка 25 € (не чіпаємо)
-  На життя 225 € ≈ 7,03 €/день · їжа 27,07 €/тиждень. Раціон надішлю окремо.»
-- Будь-яка згадка про покупку/оплату → add_expense (сума, категорія, що саме). Відповідь: «💶 −12,40 € · Їжа · можна ще сьогодні 3,10 €».
-- Якщо витрата виводить за ліміт — одним рядком скажи, на скільки, і що це означає для завтра.
-- Питання «скільки можна витратити» → бери лише «можна ще сьогодні» зі стану нижче (не ліміт дня). Відповідь одним рядком, напр.: «Можна ще 3,20 €.» або «Сьогодні вже нічого — ліміт перевищено на 7,77 €.»
-Стан бюджету: {money}
+Витрати (бюджету немає — лише облік і звіти):
+- Будь-яка згадка про покупку/оплату → add_expense (сума, категорія, що саме), кожна покупка окремо. Відповідь: «💶 −8,90 € · Кафе · бургер» і в кінці «Сьогодні: 35,70 €».
+- Питання про витрати за період → expense_report. Відповідай сумою, топ-категоріями і середнім за день, 1–3 рядки.
+- Раціон — лише якщо просять і називають суму на тиждень → make_meal_plan.
+Витрати: {money}
 
 Бали: звичка +10, задача +15, дедлайн +40 (із запізненням +10/+20); пропуск звички −5; перенесення задачі −5×№, дедлайну −10×№; прострочення −5/−15 щодня; скасування −5/−25; ідеальний день +30; звіт +10.
 
@@ -198,19 +197,13 @@ SYSTEM = """Ти — асистент ритму життя в Telegram. Мов�
 
 
 def _money_line(state, today):
-    s = finance.status(state, today)
-    if not s:
-        return "не задано"
-    c = s["currency"]
+    st = finance.status(state, today)
+    if not st:
+        return "ще нічого не записано"
     recent = "; ".join(f"[{e['id']}] {e['d'][5:]} {e['amount']} {e['cat']} {e['note']}" for e in state["expenses"][-6:])
-    if s["left_today"] < 0:
-        can = f"можна ще сьогодні: 0 (ліміт дня перевищено на {finance.money(-s['left_today'], c)})"
-    else:
-        can = f"можна ще сьогодні: {finance.money(s['left_today'], c)}"
-    return (f"{can} (ліміт дня {finance.money(s['allow_today'], c)}, "
-            f"витрачено сьогодні {finance.money(s['spent_today'], c)}); залишок на життя {finance.money(s['left_month'], c)} "
-            f"на {s['days_left']} дн; їжа тиждень {finance.money(s['food_week_spent'], c)}/{finance.money(s['food_week'], c)}; "
-            f"подушка {finance.money(s['buffer'], c)}. Останні витрати: {recent or 'немає'}")
+    return (f"сьогодні {finance.money(st['today']['total'])}, тиждень {finance.money(st['week']['total'])}, "
+            f"місяць {finance.money(st['month']['total'])}, у середньому {finance.money(st['avg_day'])}/день. "
+            f"Останні: {recent}")
 
 
 def overdue(state, events, now):
@@ -325,18 +318,29 @@ def _exec(name, a, state, now):
         e = gcal.create_event(a["title"], _d(a["date"]), a.get("start_time"), a.get("end_time"),
                               a.get("duration_min"), a.get("description", ""), rec, a.get("remind_before_min"),
                               deadline=bool(a.get("deadline")), group=a.get("group"))
-        return _ev(e, state["done"])
+        out = _ev(e, state["done"])
+        if a.get("deadline"):
+            # Разові задачі до дедлайну — щоб агент прибрав ту, яку новий дедлайн замінює (напр. «Тренування» ≈ «спортзал»)
+            span = [x for x in gcal.list_events(today, _d(a["date"]))
+                    if x["kind"] == "task" and x["id"] != e["id"] and x["id"] not in state["done"]]
+            if span:
+                out["open_tasks_until_deadline"] = [{"id": x["id"], "title": x["title"], "date": fmt.ev_day(x).isoformat()} for x in span]
+                out["hint"] = ("Прибери задачу з open_tasks_until_deadline (delete_event replaced=true) лише якщо вона ПОВНІСТЮ означає те саме, "
+                               "що новий дедлайн (напр. «Тренування» = «сходити в спортзал»). Якщо стара задача містить щось ще "
+                               "(напр. «проїзний і SIM-картка», а новий дедлайн лише про проїзний) — НЕ чіпай її.")
+        return out
     if name == "update_event":
         try:
             e, pts = move_event(state, a["event_id"], _d(a.get("date")), now, a.get("start_time"), a.get("end_time"))
         except Refused as r:
             return {"error": str(r)}
-        if any(a.get(k) is not None for k in ("title", "description", "remind_before_min")):
+        if any(a.get(k) is not None for k in ("title", "description", "remind_before_min", "deadline")):
             e = gcal.update_event(a["event_id"], a.get("title"), description=a.get("description"),
-                                  remind_before_min=a.get("remind_before_min"))
+                                  remind_before_min=a.get("remind_before_min"),
+                                  props={"kind": "deadline"} if a.get("deadline") else None)
         return {**_ev(e, state["done"]), "points": pts}
     if name == "delete_event":
-        e, pts = cancel_event(state, a["event_id"], now, bool(a.get("series")))
+        e, pts = cancel_event(state, a["event_id"], now, bool(a.get("series") or a.get("replaced")))
         return {"ok": True, "title": e["title"], "points": pts}
     if name in ("mark_done", "unmark_done"):
         return {"ok": True, "points": set_done(state, a["event_ids"], name == "mark_done", now)}
@@ -371,18 +375,18 @@ def _exec(name, a, state, now):
     if name == "log_screen_time":
         game.on_screen(state, _d(a["date"]), a["minutes"])
         return {"ok": True}
-    if name == "set_budget":
-        start, end = _plan_period(state, today)
-        p = finance.set_budget(state, a["total"], start, end, a.get("fixed"), a.get("currency") or "€")
-        return {"ok": True, "plan": p, "text": finance.plan_text(state, today)}
     if name == "add_expense":
         e = finance.add_expense(state, a["amount"], a["category"], a.get("note", ""), _d(a.get("date")) or today)
-        return {"ok": True, "expense": e, "status": finance.status(state, today)}
+        t = finance.period(state, today, today)
+        return {"ok": True, "expense": e, "today_total": t["total"]}
     if name == "delete_expense":
         return {"ok": finance.delete_expense(state, a["expense_id"])}
+    if name == "expense_report":
+        r = finance.period(state, _d(a["from_date"]), _d(a["to_date"]))
+        return {**r, "items": [e for e in state["expenses"] if a["from_date"] <= e["d"] <= a["to_date"]][-30:]}
     if name == "make_meal_plan":
-        text = finance.make_meal_plan(_client(), config.OPENAI_MODEL, state, today)
-        return {"ok": bool(text), "note": "Раціон надіслано окремим повідомленням." if text else "Спершу задай бюджет."}
+        finance.make_meal_plan(_client(), config.OPENAI_MODEL, state, float(a["weekly_amount"]))
+        return {"ok": True, "note": "Раціон надіслано окремим повідомленням."}
     if name == "add_log":
         entry = {"date": today.isoformat(), "time": f"{now:%H:%M}", "text": a["text"]}
         if a.get("energy"):
@@ -390,15 +394,6 @@ def _exec(name, a, state, now):
         state["log"].append(entry)
         return {"ok": True}
     return {"error": f"unknown tool {name}"}
-
-
-def _plan_period(state, today):
-    """Період бюджету: з сьогодні до кінця місячного плану (6 листопада) або 30 днів."""
-    b = state.get("budget")
-    if b:
-        return date.fromisoformat(b["start"]), date.fromisoformat(b["end"])
-    end = date(2026, 11, 6)
-    return today, end if end > today else today + timedelta(days=29)
 
 
 def _model_params():

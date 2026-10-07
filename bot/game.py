@@ -65,6 +65,7 @@ def init(state):
     for k, v in (("report_days", {}), ("unlocked", {}), ("goals", []), ("best_streak", 0),
                  ("screen", {}), ("ledger", []), ("done_pts", {}), ("charged", {})):
         state.setdefault(k, v)
+    finance.init(state)
 
 
 def cutoff(now: datetime) -> date:

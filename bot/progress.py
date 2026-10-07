@@ -86,21 +86,24 @@ def _deadlines(state, deadlines, today):
 
 
 def _money(state, today):
-    s = finance.status(state, today)
-    if not s:
+    st = finance.status(state, today)
+    if not st:
         return None
     days = []
     for i in range(13, -1, -1):
-        d = (today - timedelta(days=i)).isoformat()
-        days.append({"d": d, "spent": round(sum(e["amount"] for e in state["expenses"] if e["d"] == d and e["cat"] != "fixed"), 2)})
+        d = today - timedelta(days=i)
+        days.append({"d": d.isoformat(), "spent": finance.period(state, d, d)["total"]})
+
+    def cats(by_cat):
+        return [{"key": k, "emoji": finance.CAT[k][0], "name": finance.CAT[k][1], "spent": v} for k, v in by_cat.items()]
+
     return {
-        **{k: s[k] for k in ("currency", "total", "fixed", "buffer", "flexible", "per_day", "food_week", "spent",
-                             "spent_today", "allow_today", "left_today", "left_month", "days_left", "elapsed",
-                             "food_week_spent", "days")},
-        "cats": [{"key": k, "emoji": em, "name": name, "limit": s["limits"][k], "spent": s["by_cat"][k]}
-                 for k, (em, name, _) in finance.CAT.items()],
-        "fixed_items": state["budget"]["fixed"], "fixed_paid": s["fixed_paid"],
-        "recent": state["expenses"][-15:][::-1],
+        "currency": finance.CUR,
+        "today": st["today"]["total"], "week": st["week"]["total"], "prev_week": st["prev_week"]["total"],
+        "month": st["month"]["total"], "avg_day": st["avg_day"], "avg14": st["avg14"],
+        "today_cats": cats(st["today"]["by_cat"]), "week_cats": cats(st["week"]["by_cat"]),
+        "month_cats": cats(st["month"]["by_cat"]),
+        "recent": state["expenses"][-20:][::-1],
         "days14": days,
         "meal_plan": (state.get("meal_plan") or {}).get("text"),
     }
