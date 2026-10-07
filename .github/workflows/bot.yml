@@ -56,23 +56,17 @@ jobs:
           git pull -q --rebase
           git push -q
 
-      # Страховка: якщо GitHub cron затримується (>15 хв без запуску за розкладом),
-      # бот сам планує наступний запуск. Коли cron оживає — ланцюжок зупиняється.
-      - name: Keepalive
+      # GitHub cron ненадійний (на практиці — раз на 3–7 год), тому кожен запуск
+      # сам планує наступний. Нові запуски не витрачають токени OpenAI, якщо немає повідомлень.
+      - name: Next run
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          last=$(gh run list -R "$GITHUB_REPOSITORY" -w bot -e schedule -L 1 --json createdAt --jq '.[0].createdAt // ""')
-          age=999999
-          [ -n "$last" ] && age=$(( $(date +%s) - $(date -d "$last" +%s) ))
-          if [ "$age" -gt 900 ]; then
-            echo "cron мовчить ${age}s — плануємо наступний запуск"
-            sleep 180
-            # API GitHub інколи відповідає 500 — повторюємо, щоб ланцюжок не обірвався
-            for i in 1 2 3 4 5 6 7 8; do
-              gh workflow run bot -R "$GITHUB_REPOSITORY" --ref main && exit 0
-              echo "спроба $i не вдалась, чекаю"; sleep $((i * 5))
-            done
-            exit 1
-          fi
+          sleep 150
+          # API GitHub інколи відповідає 500 — повторюємо, щоб ланцюжок не обірвався
+          for i in 1 2 3 4 5 6 7 8; do
+            gh workflow run bot -R "$GITHUB_REPOSITORY" --ref main && exit 0
+            echo "спроба $i не вдалась, чекаю"; sleep $((i * 5))
+          done
+          exit 1
