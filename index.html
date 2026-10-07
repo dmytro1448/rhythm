@@ -288,7 +288,7 @@ h3 span { color: var(--faint); }
 .hatch.on { display: flex; animation: fadeIn .3s; }
 @keyframes fadeIn { from { opacity: 0; } }
 .hatch .stage { position: relative; width: 240px; height: 240px; display: grid; place-items: center; }
-.hatch .rays { position: absolute; inset: -60px; border-radius: 50%; opacity: 0; transition: opacity .6s;
+.hatch .rays { position: absolute; inset: -60px; border-radius: 50%; opacity: 0; transition: opacity .6s; pointer-events: none;
   background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--rc) 40%, transparent) 0 10deg, transparent 10deg 30deg);
   -webkit-mask: radial-gradient(circle, #000 20%, transparent 68%); mask: radial-gradient(circle, #000 20%, transparent 68%); animation: spin 14s linear infinite; }
 .hatch.out .rays { opacity: 1; }
@@ -296,7 +296,8 @@ h3 span { color: var(--faint); }
 .hatch .bigegg { width: 150px; transition: transform .12s; cursor: pointer; }
 .hatch .bigegg.hit { animation: hit .35s; }
 @keyframes hit { 20% { transform: rotate(-14deg) scale(1.06); } 50% { transform: rotate(12deg) scale(.97); } 80% { transform: rotate(-5deg); } }
-.hatch .born { position: absolute; width: 230px; transform: scale(0); }
+.hatch .born { position: absolute; width: 230px; transform: scale(0); pointer-events: none; }
+.hatch .stage { cursor: pointer; touch-action: manipulation; }
 .hatch.out .bigegg { display: none; }
 .hatch.out .born { animation: born .9s cubic-bezier(.3,1.6,.5,1) forwards; }
 @keyframes born { 0% { transform: scale(0) rotate(-20deg); } 100% { transform: scale(1) rotate(0); } }
@@ -337,7 +338,7 @@ h3 span { color: var(--faint); }
 <div class="hatch" id="hatch">
   <div class="flash"></div>
   <div class="rbadge" id="hRar"></div>
-  <div class="stage"><div class="rays"></div><div class="bigegg" id="hEgg"></div><div class="born creature" id="hBorn"></div></div>
+  <div class="stage" id="hStage"><div class="rays"></div><div class="bigegg" id="hEgg"></div><div class="born creature" id="hBorn"></div></div>
   <div class="taps" id="hTaps"><i></i><i></i><i></i><i></i></div>
   <div class="hint" id="hHint">Тапай по яйцю</div>
   <div class="info"><h2 id="hName"></h2><p id="hLore"></p><button class="take" id="hTake">Забрати в колекцію</button></div>
@@ -418,13 +419,12 @@ function demoData() {
       { id: "g2", title: "Прочитати 2 книги", emoji: "📚", progress: 240, target: 600, unit: "сторінок", pct: 40 },
       { id: "g3", title: "Відкласти гроші", emoji: "💰", progress: 5000, target: 5000, unit: "грн", pct: 100 } ],
     heat, roster,
-    money: { currency: "€", total: 450, fixed: 200, buffer: 25, flexible: 225, per_day: 7.26, food_week: 27.94, spent: 61.3, spent_today: 4.1,
-      allow_today: 7.41, left_today: 3.31, left_month: 163.7, days_left: 22, elapsed: 0.29, food_week_spent: 19.6, days: 31,
-      cats: [["food", "🛒", "Їжа", 123.75, 44.2], ["transport", "🚌", "Транспорт", 22.5, 8], ["home", "🧴", "Побут і гігієна", 22.5, 6.1], ["health", "💊", "Здоровʼя", 11.25, 0], ["comm", "📶", "Звʼязок", 11.25, 3], ["fun", "🎈", "Дозвілля", 11.25, 0], ["other", "📦", "Інше", 22.5, 0]].map(([key, emoji, name, limit, spent]) => ({ key, emoji, name, limit, spent })),
-      fixed_items: [{ name: "Житло", amount: 200 }], fixed_paid: 200,
-      recent: [{ d: new Date().toISOString().slice(0, 10), amount: 4.1, cat: "food", note: "Maxima: хліб, кефір, банани", src: "receipt" }, { d: new Date(Date.now() - 864e5).toISOString().slice(0, 10), amount: 8, cat: "transport", note: "проїзний на тиждень", src: "text" }],
-      days14: Array.from({ length: 14 }, (_, i) => ({ d: "", spent: i < 6 ? 0 : [6.2, 9.8, 4.4, 7.1, 12.3, 5.5, 3.2, 4.1][i - 6] })),
-      meal_plan: "🛒 Список покупок\nВівсянка 1 кг — 1,19 €\nЯйця 20 шт — 3,40 €\nКуряче стегно 2 кг — 6,98 €\n…\nРазом: 26,40 €\n\n🍽 Меню\nПн: вівсянка з бананом / курка з гречкою / омлет з овочами / кефір" },
+    money: { currency: "€", today: 35.7, week: 61.3, prev_week: 48.2, month: 61.3, avg_day: 12.3, avg14: 12.3,
+      today_cats: [{ key: "other", emoji: "📦", name: "Інше", spent: 25 }, { key: "cafe", emoji: "🍔", name: "Кафе і фастфуд", spent: 8.9 }, { key: "food", emoji: "🛒", name: "Їжа", spent: 1.8 }],
+      week_cats: [{ key: "other", emoji: "📦", name: "Інше", spent: 25 }, { key: "food", emoji: "🛒", name: "Їжа", spent: 19.4 }, { key: "cafe", emoji: "🍔", name: "Кафе і фастфуд", spent: 8.9 }, { key: "transport", emoji: "🚌", name: "Транспорт", spent: 8 }],
+      month_cats: [{ key: "other", emoji: "📦", name: "Інше", spent: 25 }, { key: "food", emoji: "🛒", name: "Їжа", spent: 19.4 }],
+      recent: [{ d: new Date().toISOString().slice(0, 10), amount: 8.9, cat: "cafe", note: "бургер в Макдональдсі", src: "text" }, { d: new Date().toISOString().slice(0, 10), amount: 4.1, cat: "food", note: "Maxima: хліб, кефір", src: "receipt" }],
+      days14: Array.from({ length: 14 }, (_, i) => ({ d: "", spent: i < 8 ? 0 : [6.2, 9.8, 4.4, 17.1, 12.3, 35.7][i - 8] })) },
   };
 }
 
@@ -527,36 +527,42 @@ function deadlinesBlock() {
 
 function moneyBar() {
   const m = D.money;
-  if (!m) return `<button class="moneybar" data-go="money"><div><small>бюджет</small><span style="font-weight:700">Не задано — скажи боту суму на місяць</span></div><span style="color:var(--muted)">→</span></button>`;
-  return `<button class="moneybar" data-go="money"><div><small>можна сьогодні</small><b class="${m.left_today < 0 ? "neg" : ""}">${eur(Math.max(0, m.left_today))}</b></div>
-    <div class="r">залишок на життя<span>${eur(m.left_month)} · ${m.days_left} дн</span></div></button>`;
+  if (!m) return `<button class="moneybar" data-go="money"><div><small>витрати</small><span style="font-weight:700">Надсилай боту голосом або фото чека</span></div><span style="color:var(--muted)">→</span></button>`;
+  return `<button class="moneybar" data-go="money"><div><small>витрачено сьогодні</small><b>${eur(m.today)}</b></div>
+    <div class="r">тиждень<span>${eur(m.week)}</span></div></button>`;
 }
 
-function bar(spent, limit, pace) {
-  const p = limit ? spent / limit : 0, cls = p > 1 ? "over" : p > 0.8 ? "warn" : "";
-  return `<div class="track"><i class="${cls}" style="width:${Math.min(100, p * 100)}%"></i>${pace != null ? `<span class="pace" style="left:${Math.min(100, pace * 100)}%"></span>` : ""}</div>`;
+let moneyRange = "week";
+function catsBlock(list, total) {
+  if (!list.length) return `<div class="muted" style="color:var(--muted);font-weight:600">Нічого не записано</div>`;
+  const max = Math.max(...list.map((c) => c.spent));
+  return list.map((c) => `<div><div class="mrow"><span>${c.emoji}&ensp;${esc(c.name)}</span><small>${eur(c.spent)} · ${total ? Math.round(100 * c.spent / total) : 0}%</small></div>
+    <div class="track"><i style="width:${(c.spent / max) * 100}%"></i></div></div>`).join("");
 }
 
 function moneyTab() {
   const m = D.money;
-  if (!m) return `<div class="empty" style="margin-top:4px">Бюджет ще не задано.<br>Скажи боту, напр.: «на місяць у мене 450 євро, з них 200 — житло»</div>`;
-  const max = Math.max(m.allow_today * 1.5, ...m.days14.map((d) => d.spent), 1);
+  if (!m) return `<div class="empty" style="margin-top:4px">Витрат ще немає.<br>Скажи боту, напр.: «бургер 8,90 і вода 0,90» — або надішли фото чека</div>`;
+  const delta = m.week - m.prev_week;
+  const max = Math.max(m.avg14 * 1.5, ...m.days14.map((d) => d.spent), 1);
+  const ranges = { today: ["Сьогодні", m.today_cats, m.today], week: ["Тиждень", m.week_cats, m.week], month: ["Місяць", m.month_cats, m.month] };
+  const [, cats, total] = ranges[moneyRange];
   return `
-  <div class="mcard"><div class="mrow"><span>Можна витратити сьогодні</span><small>ліміт ${eur(m.allow_today)}</small></div>
-    <div class="big ${m.left_today < 0 ? "neg" : ""}">${m.left_today < 0 ? "−" + eur(-m.left_today) : eur(m.left_today)}</div>
-    <div class="sub">витрачено сьогодні ${eur(m.spent_today)} · заощаджене сьогодні збільшує ліміт завтра</div>
-    <div style="margin-top:12px">${bar(m.spent_today, m.allow_today)}</div></div>
-  <div class="mcard"><div class="mrow"><span>🛒&ensp;Їжа цього тижня</span><small>${eur(m.food_week_spent)} / ${eur(m.food_week)}</small></div>${bar(m.food_week_spent, m.food_week)}</div>
-  <div class="mcard"><div class="mrow"><span>На життя за місяць</span><small>${eur(m.spent)} / ${eur(m.flexible)}</small></div>${bar(m.spent, m.flexible, m.elapsed)}
-    <div class="sub" style="font-size:12px">риска — де маєш бути за темпом · подушка ${eur(m.buffer)} не чіпаємо</div></div>
-  <h3>Категорії</h3>
-  <div class="mcard cats">${m.cats.map((c) => `<div><div class="mrow"><span>${c.emoji}&ensp;${esc(c.name)}</span><small>${eur(c.spent)} / ${eur(c.limit)}</small></div>${bar(c.spent, c.limit, m.elapsed)}</div>`).join("")}</div>
-  <h3>14 днів <span>пунктир — ліміт дня</span></h3>
-  <div class="mcard"><div class="spark">${m.days14.map((d) => `<i class="${!d.spent ? "zero" : d.spent > m.per_day ? "over" : ""}" style="height:${Math.max(3, (d.spent / max) * 100)}%"></i>`).join("")}<span class="limit" style="bottom:${(m.per_day / max) * 100}%"></span></div></div>
-  ${m.fixed_items?.length ? `<h3>Обовʼязкові платежі <span>${eur(m.fixed_paid)} / ${eur(m.fixed)}</span></h3><div class="mcard">${m.fixed_items.map((f) => `<div class="exp"><span>${esc(f.name)}</span><b>${eur(f.amount)}</b></div>`).join("")}</div>` : ""}
+  <div class="mcard"><div class="mrow"><span>Витрачено сьогодні</span><small>звично ${eur(m.avg14)}/день</small></div>
+    <div class="big">${eur(m.today)}</div>
+    <div class="sub">${m.today > m.avg14 * 1.5 && m.avg14 ? "більше, ніж зазвичай" : "в межах звичного"}</div></div>
+  <div class="stats" style="margin-bottom:8px">
+    <div class="stat"><span class="num" style="font-size:17px">${eur(m.week)}</span><small>цей тиждень${m.prev_week ? ` · ${delta > 0 ? "↑" : "↓"}${eur(Math.abs(delta))}` : ""}</small></div>
+    <div class="stat"><span class="num" style="font-size:17px">${eur(m.month)}</span><small>цей місяць</small></div>
+    <div class="stat"><span class="num" style="font-size:17px">${eur(m.avg_day)}</span><small>у середньому за день</small></div>
+  </div>
+  <h3>Категорії <span>${Object.entries(ranges).map(([k, [n]]) => `<button data-range="${k}" style="margin-left:10px;font-weight:800;color:${k === moneyRange ? "var(--accent)" : "var(--faint)"}">${n}</button>`).join("")}</span></h3>
+  <div class="mcard cats">${catsBlock(cats, total)}</div>
+  <h3>14 днів <span>пунктир — середнє</span></h3>
+  <div class="mcard"><div class="spark">${m.days14.map((d) => `<i class="${!d.spent ? "zero" : d.spent > m.avg14 * 1.5 ? "over" : ""}" style="height:${Math.max(3, (d.spent / max) * 100)}%"></i>`).join("")}<span class="limit" style="bottom:${(m.avg14 / max) * 100}%"></span></div></div>
   <h3>Останні витрати</h3>
-  <div class="mcard">${m.recent.length ? m.recent.map((e) => `<div class="exp"><span>${esc(e.note || e.cat)}<small>${new Date(e.d + "T12:00").toLocaleDateString("uk-UA", { day: "numeric", month: "short" })} · ${e.src === "receipt" ? "🧾 чек" : "записано"}</small></span><b>−${eur(e.amount)}</b></div>`).join("") : `<div class="muted" style="color:var(--muted);font-weight:600">Ще нічого. Надішли боту голосове або фото чека.</div>`}</div>
-  ${m.meal_plan ? `<h3>Раціон на тиждень <span>${eur(m.food_week)}</span></h3><div class="mcard"><div class="meal" id="meal">${esc(m.meal_plan)}</div><button style="margin-top:10px;font-weight:800;color:var(--accent)" onclick="document.getElementById('meal').classList.toggle('open'); this.textContent = this.textContent === 'Показати весь' ? 'Згорнути' : 'Показати весь'">Показати весь</button></div>` : ""}`;
+  <div class="mcard">${m.recent.length ? m.recent.map((e) => `<div class="exp"><span>${esc(e.note || e.cat)}<small>${new Date(e.d + "T12:00").toLocaleDateString("uk-UA", { day: "numeric", month: "short" })} · ${e.src === "receipt" ? "🧾 чек" : "записано"}</small></span><b>−${eur(e.amount)}</b></div>`).join("") : ""}</div>
+  ${m.meal_plan ? `<h3>Раціон</h3><div class="mcard"><div class="meal" id="meal">${esc(m.meal_plan)}</div><button style="margin-top:10px;font-weight:800;color:var(--accent)" onclick="document.getElementById('meal').classList.toggle('open'); this.textContent = this.textContent === 'Показати весь' ? 'Згорнути' : 'Показати весь'">Показати весь</button></div>` : ""}`;
 }
 
 function goalsTab() {
@@ -641,6 +647,7 @@ function bind() {
   document.querySelectorAll("[data-lock]").forEach((b) => b.onclick = () => { haptic("i", "light"); const a = D.roster.find((x) => x.id === b.dataset.lock); toast(`${a.hint} · ${Math.round(a.progress * 100)}%`); });
   document.querySelectorAll("[data-day]").forEach((b) => b.onclick = () => showDay(D.heat[+b.dataset.day]));
   $("#ptsChip").onclick = showLedger;
+  document.querySelectorAll("[data-range]").forEach((b) => b.onclick = () => { moneyRange = b.dataset.range; haptic("s"); $("#t-money").innerHTML = moneyTab(); bind(); });
 }
 
 function setTab(id, instant) {
@@ -753,7 +760,8 @@ function openHatch(a) {
   $("#hHint").textContent = "Тапай по яйцю";
   haptic("i", "medium");
 }
-$("#hEgg").onclick = () => {
+$("#hStage").onclick = () => {
+  if ($("#hatch").classList.contains("out") || !hatchA) return;
   taps++;
   const egg = $("#hEgg");
   egg.classList.remove("hit"); void egg.offsetWidth; egg.classList.add("hit");
