@@ -19,19 +19,24 @@ IMAGE_PROMPT = """Визнач, що на зображенні, і поверн�
 1) Екранний час телефону (Screen Time / Digital Wellbeing):
 {"type": "screen", "minutes": загальний час за день у хвилинах, "day": "today" | "yesterday" | "YYYY-MM-DD" | null,
  "apps": [{"name": "...", "minutes": N}] до 5 найбільших}
-2) Чек / квитанція / підтвердження оплати:
-{"type": "receipt", "store": "назва", "date": "YYYY-MM-DD" | null, "currency": "€", "total": сума до сплати,
- "items": [{"name": "коротко українською", "amount": ціна з урахуванням знижок, "category": "food|cafe|transport|home|health|comm|fun|housing|other"}]}
-   Сума amount усіх items має дорівнювати total (знижки розподіли по товарах). Продукти й кафе — food, засоби гігієни/побутова хімія — home.
+2) Чек / квитанція:
+{"type": "receipt", "store": "назва магазину з чека", "date": "YYYY-MM-DD" | null, "total": підсумок ДО СПЛАТИ (рядок KOPĀ / SUMMA / Total / Kopā apmaksai),
+ "items": [{"raw": "назва позиції ДОСЛІВНО як надруковано", "name": "коротко українською", "amount": сума рядка,
+            "category": "food|cafe|transport|home|health|comm|fun|housing|other"}]}
+   ПРАВИЛА: переписуй лише те, що реально надруковано, нічого не вигадуй і не вгадуй. Нечитабельний рядок — пропусти.
+   Знижки (Atlaide, Akcija, -x.xx) — окремими items з відʼємною сумою. Кількість×ціну не перемножуй сам — бери суму рядка.
+   Продукти/напої з магазину — food, гігієна/побутова хімія — home.
 3) Інше: {"type": "other", "summary": "коротко, що на фото"}"""
 
 
-def read_image(image: bytes) -> dict:
+def read_image(image: bytes, careful=False) -> dict:
     url = "data:image/jpeg;base64," + base64.b64encode(image).decode()
+    prompt = IMAGE_PROMPT + ("\nЦе ПОВТОРНЕ прочитання: користувач каже, що минулого разу були помилки. "
+                             "Перевір кожен рядок і підсумок особливо уважно." if careful else "")
     res = _client().chat.completions.create(
-        model=config.OPENAI_MODEL, response_format={"type": "json_object"},
+        model=config.VISION_MODEL, response_format={"type": "json_object"}, temperature=0,
         messages=[{"role": "user", "content": [
-            {"type": "text", "text": IMAGE_PROMPT},
+            {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": url, "detail": "high"}},
         ]}],
     )
@@ -126,7 +131,8 @@ TOOLS = [
         "note": {"type": "string", "description": "Що саме, коротко"},
         "date": _DATE,
     }, ["amount", "category"]),
-    _fn("delete_expense", "Видалити помилкову витрату за id.", {"expense_id": {"type": "string"}}, ["expense_id"]),
+    _fn("delete_expense", "Видалити витрату за id, або весь чек — за його rid.", {"expense_id": {"type": "string"}}, ["expense_id"]),
+    _fn("reread_receipt", "Ще раз уважно прочитати фото останнього чека і перезаписати його позиції (коли користувач каже, що чек прочитано неправильно).", {}),
     _fn("expense_report", "Звіт про витрати за період: сума, по категоріях, середнє за день.",
         {"from_date": _DATE, "to_date": _DATE}, ["from_date", "to_date"]),
     _fn("make_meal_plan", "Скласти раціон і список покупок на тиждень на вказану суму (окремий агент). Лише на прохання.",
@@ -167,11 +173,15 @@ SYSTEM = """Ти — асистент ритму життя в Telegram. Мов�
 5. Екранний час (цифра або скрін) → log_screen_time. Прогрес по цілях → update_goal (add); справи з match цілі рахуються самі.
 6. Видаляєш лише на явне прохання.
 7. «Обовʼязково», «до пʼятниці», «кров з носа» → нова справа з deadline=true на кінцеву дату (create_event). Якщо в найближчі дні вже є разова задача (task) з тим самим змістом — прибери її (delete_event replaced=true, без штрафу). Не відповідай «вже є». Назву бери зі слів користувача. Відповідь: «+ <назва> · до <дата> · дедлайн».
-8. mark_done — ЛИШЕ коли користувач прямо каже, що вже зробив. Нова справа ніколи не позначається виконаною.
+8. «Замість X додай Y» → прибери X на ту дату (delete_event replaced=true, без штрафу) і створи Y.
+9. «Прибери X взагалі / назавжди / з усіх днів» про звичку → delete_event series=true (без штрафу).
+10. «Перенеси дедлайн» → update_event з новою датою. Ніколи не видаляй і не створюй заново.
+11. mark_done — ЛИШЕ коли користувач прямо каже, що вже зробив. Нова справа ніколи не позначається виконаною.
 
 Витрати (бюджету немає — лише облік і звіти):
 - Будь-яка згадка про покупку/оплату → add_expense (сума, категорія, що саме), кожна покупка окремо. Відповідь: «💶 −8,90 € · Кафе · бургер» і в кінці «Сьогодні: 35,70 €».
 - Питання про витрати за період → expense_report. Відповідай сумою, топ-категоріями і середнім за день, 1–3 рядки.
+- Чек: позиції бери ТІЛЬКИ з «Останній чек» нижче, ніколи не вигадуй. «Неправильно прочитав чек / подивись ще раз» → reread_receipt. «Видали чек» → delete_expense з rid чека.
 - Раціон — лише якщо просять і називають суму на тиждень → make_meal_plan.
 Витрати: {money}
 
@@ -203,7 +213,15 @@ def _money_line(state, today):
     recent = "; ".join(f"[{e['id']}] {e['d'][5:]} {e['amount']} {e['cat']} {e['note']}" for e in state["expenses"][-6:])
     return (f"сьогодні {finance.money(st['today']['total'])}, тиждень {finance.money(st['week']['total'])}, "
             f"місяць {finance.money(st['month']['total'])}, у середньому {finance.money(st['avg_day'])}/день. "
-            f"Останні: {recent}")
+            f"Останні: {recent}" + _last_receipt_line(state))
+
+
+def _last_receipt_line(state):
+    r = state.get("last_receipt")
+    if not r:
+        return ""
+    items = "; ".join(f"{x['name']} {x['amount']}" for x in r["items"][:20])
+    return f"\nОстанній чек (rid={r['rid']}): {r['store']} {r['d']}, разом {r['total']}: {items}"
 
 
 def overdue(state, events, now):
@@ -263,6 +281,9 @@ def _d(s):
     return date.fromisoformat(s) if s else None
 
 
+_done_titles = []
+
+
 def set_done(state, ids, done, now):
     total = 0
     for eid in ids:
@@ -276,6 +297,7 @@ def set_done(state, ids, done, now):
         before = state["stats"]["xp"]
         game.on_done(state, ev, done, now)
         total += state["stats"]["xp"] - before
+        _done_titles.append(ev["title"])
     return total
 
 
@@ -304,6 +326,10 @@ def cancel_event(state, eid, now, series=False):
     gcal.delete_event(eid, series)
     state["done"].pop(eid, None)
     return cur, pts
+
+
+FOREVER_WORDS = ("взагалі", "назавжди", "з усіх днів", "з усіх наступних", "в принципі", "повністю", "зовсім", "з розкладу")
+_user_text = ""
 
 
 def _exec(name, a, state, now):
@@ -340,10 +366,19 @@ def _exec(name, a, state, now):
                                   props={"kind": "deadline"} if a.get("deadline") else None)
         return {**_ev(e, state["done"]), "points": pts}
     if name == "delete_event":
-        e, pts = cancel_event(state, a["event_id"], now, bool(a.get("series") or a.get("replaced")))
-        return {"ok": True, "title": e["title"], "points": pts}
+        # «прибери взагалі / назавжди / з усіх днів» про звичку — уся серія, без штрафу (модель часто забуває series)
+        series = bool(a.get("series")) or (any(w in _user_text.lower() for w in FOREVER_WORDS)
+                                            and gcal.get_event(a["event_id"])["kind"] == "habit")
+        e, pts = cancel_event(state, a["event_id"], now, series or bool(a.get("replaced")))
+        if series and e["kind"] == "habit":  # звичку прибрано назавжди — прибираємо й ціль, що її рахувала
+            low = e["title"].lower()
+            state["goals"] = [g for g in state["goals"]
+                              if not (g.get("match") and any(m.strip().lower() in low for m in g["match"].split(",") if m.strip()))]
+        return {"ok": True, "title": e["title"], "points": pts, "series": series}
     if name in ("mark_done", "unmark_done"):
-        return {"ok": True, "points": set_done(state, a["event_ids"], name == "mark_done", now)}
+        _done_titles.clear()
+        pts = set_done(state, a["event_ids"], name == "mark_done", now)
+        return {"ok": True, "points": pts, "titles": list(_done_titles)}
     if name == "add_goal":
         gid = f"g{len(state['goals']) + 1}"
         while any(g["id"] == gid for g in state["goals"]):
@@ -378,9 +413,14 @@ def _exec(name, a, state, now):
     if name == "add_expense":
         e = finance.add_expense(state, a["amount"], a["category"], a.get("note", ""), _d(a.get("date")) or today)
         t = finance.period(state, today, today)
-        return {"ok": True, "expense": e, "today_total": t["total"]}
+        return {"ok": True, "expense": e, "today_total": t["total"], "today": today.isoformat()}
     if name == "delete_expense":
-        return {"ok": finance.delete_expense(state, a["expense_id"])}
+        gone = [e for e in state["expenses"] if e["id"] == a["expense_id"] or e.get("rid") == a["expense_id"]]
+        for e in gone:
+            finance.delete_expense(state, e["id"])
+        return {"ok": bool(gone), "deleted": gone}
+    if name == "reread_receipt":
+        return reread_receipt(state, now)
     if name == "expense_report":
         r = finance.period(state, _d(a["from_date"]), _d(a["to_date"]))
         return {**r, "items": [e for e in state["expenses"] if a["from_date"] <= e["d"] <= a["to_date"]][-30:]}
@@ -394,6 +434,103 @@ def _exec(name, a, state, now):
         state["log"].append(entry)
         return {"ok": True}
     return {"error": f"unknown tool {name}"}
+
+
+CAT_NAME = {k: n for k, (_, n) in finance.CAT.items()}
+
+
+def record_receipt(state, info, now, file_id=None):
+    """Чек → окремі витрати по позиціях (спільний rid). Повертає текст для користувача."""
+    import uuid
+    day = now.date()
+    try:
+        day = date.fromisoformat(info.get("date") or "")
+    except ValueError:
+        pass
+    store_name = (info.get("store") or "чек")[:30]
+    rid = "r" + uuid.uuid4().hex[:7]
+    items = []
+    for it in info.get("items") or []:
+        try:
+            amount = round(float(it["amount"]), 2)
+        except (TypeError, ValueError, KeyError):
+            continue
+        items.append((it.get("name") or it.get("raw") or "позиція", it.get("raw", ""), amount, it.get("category", "other")))
+    total = round(float(info.get("total") or sum(x[2] for x in items)), 2)
+    for name, raw, amount, cat in items:
+        e = finance.add_expense(state, amount, cat, f"{store_name}: {name}", day, source="receipt")
+        e["rid"], e["raw"] = rid, raw[:40]
+    diff = round(total - sum(x[2] for x in items), 2)
+    if abs(diff) >= 0.01:
+        e = finance.add_expense(state, diff, "other", f"{store_name}: коригування до суми чека", day, source="receipt")
+        e["rid"] = rid
+    state["last_receipt"] = {"rid": rid, "file_id": file_id, "store": store_name, "d": day.isoformat(), "total": total,
+                             "items": [{"name": n, "raw": r, "amount": a, "cat": c} for n, r, a, c in items], "diff": diff}
+    lines = [f"🧾 {store_name} · {finance.money(total)} · {fmt.short_date(day)}"]
+    lines += [f"· {n} — {finance.money(a)}" for n, _, a, _ in items[:25]]
+    if abs(diff) >= 0.01:
+        lines.append(f"⚠️ Позиції дають {finance.money(total - diff)}, а підсумок чека {finance.money(total)} — "
+                     f"різницю {finance.money(diff)} записав окремо. Якщо щось не так — напиши «перечитай чек».")
+    return "\n".join(lines)
+
+
+def reread_receipt(state, now):
+    from . import telegram as tg
+    last = state.get("last_receipt")
+    if not last or not last.get("file_id"):
+        return {"error": "Немає фото останнього чека — надішли його ще раз."}
+    for e in [e for e in state["expenses"] if e.get("rid") == last["rid"]]:
+        finance.delete_expense(state, e["id"])
+    info = read_image(tg.download(last["file_id"]), careful=True)
+    if info.get("type") != "receipt":
+        return {"error": "Не вдалося прочитати чек — надішли фото рівніше й ближче."}
+    return {"ok": True, "summary": record_receipt(state, info, now, last["file_id"])}
+
+
+def describe(name, a, r):
+    """Рядок для користувача про РЕАЛЬНО виконану дію (або помилку). None — нічого показувати."""
+    if not isinstance(r, dict):
+        return None
+    if r.get("error"):
+        return f"· {r['error']}"
+    if name == "create_event":
+        return f"+ {r['title']} · {fmt.short_date(_d(r['date']))}" + (" · дедлайн" if r.get("kind") == "deadline" else "")
+    if name == "update_event":
+        pts = r.get("points") or 0
+        return f"↷ {r['title']} → {fmt.short_date(_d(r['date']))}" + (f" · {fmt.signed(pts)}" if pts else "")
+    if name == "delete_event":
+        return f"✕ {r['title']}" + (" — з усіх днів" if r.get("series") else "") + (f" · {fmt.signed(r['points'])}" if r.get("points") else "")
+    if name in ("mark_done", "unmark_done") and r.get("titles"):
+        mark = "✓" if name == "mark_done" else "↺"
+        return f"{mark} {', '.join(r['titles'])} · {fmt.signed(r['points'])}"
+    if name == "add_expense":
+        e = r["expense"]
+        when = "" if e["d"] == r.get("today") else f" · {fmt.short_date(_d(e['d']))}"
+        return f"💶 −{finance.money(e['amount'])} · {CAT_NAME.get(e['cat'], 'Інше')} · {e['note']}{when}".replace("−−", "−")
+    if name == "delete_expense" and r.get("deleted"):
+        return "🗑 " + ", ".join(f"{e['note'] or e['cat']} {finance.money(e['amount'])}" for e in r["deleted"])
+    if name == "log_screen_time":
+        return f"📱 {fmt.hm(int(a['minutes']))} · {fmt.short_date(_d(a['date']))}"
+    if name == "add_goal":
+        return f"🎯 + {r['title']} · {r['target']} {r['unit']}"
+    if name == "update_goal" and r.get("title"):
+        return f"🎯 {r['title']}: {r['progress']}/{r['target']} {r['unit']} · {r['pct']}%"
+    if name == "delete_goal":
+        return "🎯 ціль прибрано"
+    if name == "reread_receipt" and r.get("summary"):
+        return r["summary"]
+    return None
+
+
+CLAIM_WORDS = ("видал", "перенес", "додано", "додав", "записав", "записано", "позначив", "позначено", "прибрав",
+               "прибрано", "скасова", "оновив", "оновлено", "змінив", "змінено")
+
+
+def _claims_action(text):
+    low = text.lower()
+    if any(w in low for w in CLAIM_WORDS):
+        return True
+    return any(line.lstrip().startswith(m) for line in text.splitlines() for m in ("✓", "✕", "↷", "💶", "+ ", "🗑"))
 
 
 def _model_params():
@@ -414,36 +551,56 @@ def _claimed_without_tool(reply, used):
 
 
 def run(state, text, now: datetime):
-    """Повертає (відповідь, множина викликаних інструментів)."""
+    """Повертає (відповідь, множина викликаних інструментів).
+    Підтвердження дій формує КОД з фактичних результатів — модель не може «вдати» дію."""
     fresh = (f"Актуально зараз: бали сьогодні {fmt.signed(game.day_points(state, now.date()))}, "
              f"усього {state['stats']['xp']}. Числа з попередніх відповідей застаріли.")
-    messages = [{"role": "system", "content": _system(state, now)}, *state["history"][-16:],
+    messages = [{"role": "system", "content": _system(state, now)}, *state["history"][-12:],
                 {"role": "system", "content": fresh}, {"role": "user", "content": text}]
-    reply, used, checked = "Не вийшло виконати — повтори, будь ласка, інакше.", set(), False
-    for _ in range(9):
+    global _user_text
+    _user_text = text
+    used, actions, text_reply, retried, spent_today = set(), [], "", False, False
+    for _ in range(10):
         msg = _client().chat.completions.create(
             model=config.OPENAI_MODEL, messages=messages, tools=TOOLS, **_model_params(),
         ).choices[0].message
         if not msg.tool_calls:
-            reply = (msg.content or "").strip() or reply
-            claimed = _claimed_without_tool(reply, used)
-            if claimed and not checked:
-                # Модель «підтвердила» дію, не виконавши її — змушуємо виконати або виправити відповідь
-                checked = True
-                messages += [{"role": "assistant", "content": reply},
-                             {"role": "system", "content": f"Ти написав про дію ({claimed}), але не викликав інструмент. "
-                              "Виклич потрібний інструмент зараз. Якщо дія не потрібна — дай виправлену відповідь без цієї позначки."}]
+            text_reply = (msg.content or "").strip()
+            if not actions and _claims_action(text_reply) and not retried:
+                retried = True
+                messages += [{"role": "assistant", "content": text_reply},
+                             {"role": "system", "content": "Ти описав дію, але не викликав жодного інструмента — нічого не змінилось. "
+                              "Виклич потрібні інструменти зараз. Якщо не зрозуміло, що робити, — постав одне коротке уточнювальне питання."}]
                 continue
             break
         messages.append({"role": "assistant", "content": msg.content,
                          "tool_calls": [tc.model_dump() for tc in msg.tool_calls]})
         for tc in msg.tool_calls:
             used.add(tc.function.name)
+            args = json.loads(tc.function.arguments or "{}")
             try:
-                result = _exec(tc.function.name, json.loads(tc.function.arguments or "{}"), state, now)
+                result = _exec(tc.function.name, args, state, now)
             except Exception as e:
-                result = {"error": f"{type(e).__name__}: {e}"}
+                result = {"error": f"не вдалося ({type(e).__name__})"}
+            if tc.function.name == "add_expense" and isinstance(result, dict) and result.get("expense", {}).get("d") == now.date().isoformat():
+                spent_today = True
+            line = describe(tc.function.name, args, result)
+            if line:
+                actions.append(line)
             messages.append({"role": "tool", "tool_call_id": tc.id,
                              "content": json.dumps(result, ensure_ascii=False, default=str)})
+
+    if actions:
+        reply = "\n".join(actions)
+        if spent_today:
+            reply += f"\nСьогодні: {finance.money(finance.period(state, now.date(), now.date())['total'])}"
+        if "?" in text_reply:  # уточнювальне питання моделі — додаємо
+            reply += "\n\n" + text_reply
+    elif text_reply and not _claims_action(text_reply):
+        reply = text_reply
+    elif text_reply and "?" in text_reply:
+        reply = text_reply
+    else:
+        reply = "Нічого не змінено. Скажи конкретніше: що саме зробити і на коли."
     state["history"] += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
     return reply, used

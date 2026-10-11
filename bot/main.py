@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 from html import escape
 
-from . import agent, config, finance, fmt, game, gcal, progress, scheduler, store
+from . import agent, config, finance, fmt, game, gcal, migrations, progress, scheduler, store
 from . import telegram as tg
 
 HELP = """<b>Ритм</b>
@@ -40,8 +40,9 @@ def handle_message(msg, state):
             screen_shot(info, state, now, msg)
             if not text:
                 return
-        elif info.get("type") == "receipt" and info.get("total"):
-            receipt(info, state, now)
+        elif info.get("type") == "receipt" and (info.get("total") or info.get("items")):
+            tg.send(agent.record_receipt(state, info, now, msg["photo"][-1]["file_id"]))
+            _money_alerts(state, now)
             if not text:
                 return
         else:
@@ -76,44 +77,6 @@ def handle_message(msg, state):
 def _money_alerts(state, now):
     for text in finance.alerts(state, now.date()):
         tg.send(text)
-
-
-def receipt(info, state, now):
-    """Чек → витрати по категоріях. Сума позицій підганяється під total."""
-    day = now.date()
-    try:
-        day = datetime.strptime(info.get("date") or "", "%Y-%m-%d").date()
-    except ValueError:
-        pass
-    total = round(float(info["total"]), 2)
-    by_cat, last_cat = {}, None
-    for it in info.get("items") or []:
-        try:
-            amount = float(it["amount"])
-        except (TypeError, ValueError, KeyError):
-            continue
-        if amount < 0 and last_cat:  # знижка — до попередньої позиції, а не окремою витратою
-            name, prev = by_cat[last_cat][-1]
-            by_cat[last_cat][-1] = (name, prev + amount)
-            continue
-        last_cat = it.get("category", "other")
-        by_cat.setdefault(last_cat, []).append((it.get("name", ""), amount))
-    items_sum = sum(a for v in by_cat.values() for _, a in v)
-    if not by_cat or abs(items_sum - total) > 0.05 * total:
-        by_cat = {"food": [("покупки", total)]} if not by_cat else by_cat
-        k = total / items_sum if items_sum else 1
-        by_cat = {c: [(n, a * k) for n, a in v] for c, v in by_cat.items()}
-    store_name = (info.get("store") or "чек")[:30]
-    parts = []
-    for cat, items in by_cat.items():
-        amount = round(sum(a for _, a in items), 2)
-        names = ", ".join(n for n, _ in items[:4])
-        finance.add_expense(state, amount, cat, f"{store_name}: {names}", day, source="receipt")
-        em, name = finance.CAT.get(cat, ("📦", "Інше"))
-        parts.append(f"{em} {name} {finance.money(amount)}")
-    tail = f"\nСьогодні: {finance.money(finance.period(state, now.date(), now.date())['total'])}"
-    tg.send(f"🧾 {escape(store_name)} · {finance.money(total)}\n" + " · ".join(parts) + tail)
-    _money_alerts(state, now)
 
 
 def screen_shot(info, state, now, msg):
@@ -247,6 +210,11 @@ def _replace_row(msg, data, new_row):
 
 def run_once(poll=0):
     state = store.load()
+    if config.CHAT_ID:
+        try:
+            migrations.run(state, datetime.now(config.TZ))
+        except Exception as e:
+            print("migration failed:", _err(e))
     updates = tg.get_updates(state["offset"], poll)
     for u in updates:
         state["offset"] = u["update_id"] + 1

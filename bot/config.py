@@ -21,8 +21,9 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 CHAT_ID = _int("TELEGRAM_CHAT_ID", 0)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4.1-mini"
 TRANSCRIBE_MODEL = os.getenv("TRANSCRIBE_MODEL") or "gpt-4o-transcribe"  # mini-версія ненадійна для української (тест: 9/12 проти 12/12)
+VISION_MODEL = os.getenv("VISION_MODEL") or "gpt-4.1"  # чеки: точне читання важливіше за ціну (~0,5 цента за фото)
 TRANSCRIBE_LANGUAGE = os.getenv("TRANSCRIBE_LANGUAGE") or "uk"
 
 # JSON-вміст ключа сервісного акаунта або шлях до файлу з ним
